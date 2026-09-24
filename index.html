@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>워뇨띠 체결 분석</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+  :root {
+    --bg: #07090b; --card: #0b0e12; --card-2: #0e1217; --card-3: #14181f; --border: #1a1f26; --border-2: #2a3139;
+    --fg: #e6ebf0; --muted: #8a96a3; --faint: #5c6672;
+    --buy: #26a69a; --sell: #ef5350; --liq: #b388ff; --accent: #f0b429; --gold: #f0b429;
+    --buy-soft: rgba(38,166,154,.14); --sell-soft: rgba(239,83,80,.14); --accent-soft: rgba(240,180,41,.14);
+    --r: 4px; --r-s: 3px;
+    --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    --side-w: 300px; --right-w: 400px; --term-h: calc(100vh - 118px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 12.5px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+  button, select, input { font: inherit; }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  .pos { color: var(--buy); } .neg { color: var(--sell); }
+  .spacer { flex: 1; }
+
+  /* ---------- 헤더 · 티커 ---------- */
+  header { display: flex; align-items: stretch; gap: 18px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--card); position: sticky; top: 0; z-index: 20; height: 40px; }
+  header::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, var(--accent), var(--buy) 45%, transparent 90%); }
+  header h1 { font-size: 13px; margin: 0; font-weight: 700; letter-spacing: -0.01em; align-self: center; }
+  header h1 small { color: var(--muted); font-weight: 450; margin-left: 8px; font-family: var(--mono); font-size: 11px; }
+  .tabs { display: inline-flex; gap: 2px; }
+  .tab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 0 10px; cursor: pointer; font-weight: 500; }
+  .tab.on { color: var(--fg); border-bottom-color: var(--accent); }
+  .statusbar { display: flex; gap: 22px; padding: 4px 16px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); border-bottom: 1px solid var(--border); background: var(--card); white-space: nowrap; overflow: hidden; }
+  .statusbar b { color: var(--accent); font-weight: 600; }
+  main { padding: 0; }
+  .view { display: none; } .view.on { display: block; }
+
+  /* ---------- 공통 부품 ---------- */
+  .seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--r-s); overflow: hidden; background: var(--card); }
+  .seg button { background: none; border: 0; border-right: 1px solid var(--border); color: var(--muted); padding: 2px 8px; cursor: pointer; font-size: 11.5px; font-family: var(--mono); }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--card-3); color: var(--accent); }
+  .seg button:disabled { opacity: .35; cursor: default; }
+  .btn, select.ctl { background: var(--card); color: var(--fg); border: 1px solid var(--border-2); border-radius: var(--r-s); padding: 2px 7px; cursor: pointer; font-size: 11.5px; }
+  .btn:hover, select.ctl:hover { border-color: var(--accent); }
+  .chk { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; font-size: 11.5px; }
+  .chk input { accent-color: var(--accent); margin: 0; }
+  .lbl { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; font-family: var(--mono); margin-right: 4px; }
+  .grp { display: inline-flex; align-items: center; gap: 5px; }
+  .tag { display: inline-block; font-size: 10.5px; line-height: 15px; padding: 0 5px; border-radius: 2px; background: var(--card-3); color: var(--muted); border: 1px solid var(--border-2); white-space: nowrap; font-family: var(--mono); }
+  .tag.liq { color: var(--liq); border-color: rgba(179,136,255,.5); background: rgba(179,136,255,.12); }
+  .tag.buy { color: var(--buy); border-color: rgba(38,166,154,.4); background: var(--buy-soft); }
+  .tag.sell { color: var(--sell); border-color: rgba(239,83,80,.4); background: var(--sell-soft); }
+  .sec-h, .csec-t, .nsec-t { font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .1em; font-family: var(--mono); padding: 8px 0 3px; margin-bottom: 4px; }
+  .csec-t, .nsec-t { color: var(--accent); }
+  .hint { color: var(--faint); font-size: 11.5px; padding: 6px 0 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 4px 9px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; font-size: 11.5px; }
+  td { font-family: var(--mono); }
+  th { color: var(--muted); font-weight: 500; font-size: 10.5px; font-family: var(--mono); letter-spacing: .04em; position: sticky; top: 0; background: var(--card-2); z-index: 1; cursor: pointer; user-select: none; }
+  th.sorted { color: var(--accent); }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr { cursor: pointer; transition: background-color .12s; } tbody tr:hover { background: var(--card-2); } tbody tr.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  tr.canceled td { color: var(--faint); }
+  .tbl-wrap { max-height: 440px; overflow: auto; }
+  .box { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); margin: 0 16px 12px; overflow: hidden; }
+  .box-h { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; background: var(--card-2); }
+  .box-h h2 { font-size: 12px; margin: 0; font-weight: 650; }
+  .note { color: var(--muted); font-size: 11.5px; }
+  .chart { position: relative; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 8px; margin: 12px 16px 10px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 9px 11px; animation: rise .4s cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+  .card .k { color: var(--muted); font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; font-family: var(--mono); }
+  .card .v { font-size: 15.5px; font-weight: 600; margin-top: 3px; font-family: var(--mono); letter-spacing: -0.02em; }
+  .card .s { color: var(--faint); font-size: 11px; margin-top: 2px; }
+  .cards.inner { margin: 0; padding: 10px 12px 0; }
+  .cards.inner .card { background: var(--card-2); }
+  @keyframes rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { width: 18px; height: 18px; border: 2px solid var(--border-2); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 8px; }
+
+  /* ---------- 잔고 탭 ---------- */
+  .intro-b { display: grid; grid-template-columns: 1.25fr 1fr; gap: 0 28px; padding: 2px 12px 10px; }
+  .intro ol { margin: 4px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--fg); }
+  .intro li { margin-bottom: 5px; } .intro li b { font-weight: 650; }
+  #view-balance > .box.intro { margin-top: 12px; }
+
+  /* ---------- 잔고 탭: 연도 카드 · 타임라인 · 히트맵 ---------- */
+  #timeline { height: 760px; }
+  .years { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); }
+  .ycard { background: var(--card); padding: 10px 14px; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; }
+  .ycard .y { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--accent); grid-column: 1 / -1; }
+  .ycard .row { display: contents; }
+  .ycard .k { color: var(--muted); font-size: 11px; } .ycard .v { font-family: var(--mono); font-size: 11.5px; text-align: right; }
+  .ycard svg { grid-column: 1 / -1; width: 100%; height: 34px; margin-top: 6px; display: block; }
+  .heat { display: grid; grid-template-columns: 56px repeat(12, 1fr); gap: 3px; padding: 10px 12px 12px; }
+  .heat .hy { font-family: var(--mono); font-size: 11.5px; color: var(--muted); display: flex; align-items: center; }
+  .heat .hm { font-family: var(--mono); font-size: 10px; color: var(--faint); text-align: center; }
+  .heat .hc { border-radius: 3px; padding: 6px 4px; text-align: center; cursor: pointer; border: 1px solid var(--border); transition: transform .1s; min-height: 44px; }
+  .heat .hc:hover { transform: translateY(-1px); border-color: var(--accent); }
+  .heat .hc b { display: block; font-family: var(--mono); font-size: 11.5px; font-weight: 600; }
+  .heat .hc span { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .heat .hc.empty { background: none; border-style: dashed; cursor: default; }
+  .navbar { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--card-2); border-top: 1px solid var(--border); flex: none; }
+  .navbar .seg button { padding: 3px 10px; font-size: 12.5px; }
+  .nav-map { flex: 1; min-width: 120px; height: 38px; cursor: pointer; border: 1px solid var(--border); border-radius: var(--r-s); background: var(--card); touch-action: none; display: block; }
+  .nav-hint { font-family: var(--mono); font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+  @media (max-width: 960px) { .nav-hint { display: none; } }
+  #htip { display: none; position: fixed; z-index: 50; pointer-events: none; background: var(--card-3); border: 1px solid var(--border-2); border-radius: var(--r); padding: 8px 10px; min-width: 250px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  #htip .tt { font-family: var(--mono); font-weight: 700; color: var(--accent); font-size: 12.5px; margin-bottom: 4px; }
+  #htip .tr { display: flex; justify-content: space-between; gap: 14px; font-size: 11.5px; line-height: 1.7; }
+  #htip .tr span:first-child { color: var(--muted); }
+  #htip .tr b { font-family: var(--mono); font-weight: 500; text-align: right; }
+  #htip .tf { color: var(--faint); font-size: 10.5px; margin-top: 4px; }
+  /* ---------- 체결 탭: 명령줄 + 3열 ---------- */
+  .cmd { display: flex; align-items: center; gap: 12px; padding: 6px 16px; border-bottom: 1px solid var(--border); background: var(--card); font-family: var(--mono); font-size: 12px; flex-wrap: wrap; }
+  .cmd .p { color: var(--accent); font-weight: 700; } .cmd .k { color: var(--muted); } .cmd .v { color: var(--fg); }
+  .cmd .ep-nav { display: inline-flex; gap: 3px; }
+  .cmd .ep-nav button { background: none; border: 1px solid var(--border-2); color: var(--muted); padding: 1px 7px; cursor: pointer; border-radius: 2px; font-family: var(--mono); }
+  .cmd .ep-nav button:hover { color: var(--accent); border-color: var(--accent); }
+  .term { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--right-w); height: var(--term-h); min-height: 720px; border-bottom: 1px solid var(--border); }
+  .tside { border-right: 1px solid var(--border); overflow: auto; background: var(--bg); display: flex; flex-direction: column; }
+  .tside-h { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--card); position: sticky; top: 0; z-index: 2; }
+  .tside-h .lbl { margin: 0; }
+  .tside-h select { flex: 1; min-width: 0; }
+  .msum { padding: 6px 12px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11px; color: var(--muted); display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+  .msum b { color: var(--fg); font-weight: 600; }
+  .msum .w { grid-column: 1 / -1; }
+  .rtlist { flex: 1; }
+  .rt { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; padding: 7px 12px; border-bottom: 1px solid #12161b; cursor: pointer; transition: background-color .12s; }
+  .rt:hover { background: var(--card-2); } .rt.on { background: var(--card-3); box-shadow: inset 2px 0 0 var(--accent); }
+  .rt .a { font-family: var(--mono); font-size: 11.5px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rt .b { font-family: var(--mono); font-size: 11.5px; text-align: right; }
+  .rt .c { grid-column: 1 / -1; font-size: 10.5px; color: var(--faint); display: flex; gap: 6px; align-items: center; font-family: var(--mono); }
+  .rt .bar { display: inline-block; height: 4px; border-radius: 1px; background: var(--buy); min-width: 2px; } .rt .bar.d { background: var(--sell); }
+  .tcenter { display: flex; flex-direction: column; min-width: 0; }
+  #fillChartWrap { position: relative; flex: 1; background: var(--card); overflow: hidden; min-height: 0; }
+  #fillChart { position: absolute; inset: 0; z-index: 0; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+  #chartMsg { position: absolute; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center; text-align: center; color: var(--muted); padding: 24px; }
+  #chartMsg.on { display: flex; }
+  #hud { position: absolute; left: 10px; top: 8px; z-index: 5; display: none; gap: 16px; font-family: var(--mono); font-size: 11px; color: var(--muted); background: rgba(7,9,11,.78); padding: 4px 8px; border: 1px solid var(--border); pointer-events: none; }
+  #hud.on { display: flex; }
+  #hud b { color: var(--fg); font-weight: 600; }
+  /* 매매 피드 (오른쪽 위) */
+  .feed { flex: none; height: 42%; min-height: 170px; display: flex; flex-direction: column; border-bottom: 1px solid var(--border-2); background: var(--card); }
+  .feed.fold { height: auto; min-height: 0; } .feed.fold .feed-b { display: none; }
+  .feed-h { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--card-2); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11px; }
+  .feed-h .t { color: var(--accent); font-weight: 700; letter-spacing: .06em; } .feed-h .m { color: var(--muted); }
+  .feed-h .btn { padding: 0 7px; font-size: 10.5px; }
+  .feed-b { position: relative; flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
+  .fr { padding: 5px 12px 5px 10px; border-bottom: 1px solid #12161b; cursor: pointer; font-family: var(--mono); font-size: 11px; transition: background-color .12s, opacity .15s; border-left: 2px solid transparent; }
+  .fr:hover, .fr.hot { background: var(--card-3); } .fr.hot { border-left-color: var(--accent); }
+  .fr.out { opacity: .38; }
+  .fr .l1 { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .fr .n { color: var(--accent); font-weight: 700; min-width: 14px; } .fr .tm { color: var(--muted); }
+  .fr .q { margin-left: auto; color: var(--fg); font-weight: 600; }
+  .fr .l2 { display: flex; align-items: center; gap: 8px; margin-top: 2px; padding-left: 21px; color: var(--faint); font-size: 10.5px; }
+  .fr .l2 .px { width: 158px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fr .bar { position: relative; flex: 1; height: 5px; background: var(--card-3); border-radius: 2px; overflow: hidden; }
+  .fr .bar i { position: absolute; top: 0; bottom: 0; left: 0; }
+  .fr .bar i.cum { background: rgba(139,149,163,.35); }
+  .fr .bar i.buy { background: var(--buy); } .fr .bar i.sell { background: var(--sell); } .fr .bar i.liq { background: var(--liq); }
+  .fr .l2 .c { min-width: 30px; text-align: right; color: var(--muted); }
+  .fr.sep { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; background: var(--card-2); color: var(--fg); border-left-color: var(--accent); padding: 4px 12px 4px 10px; }
+  .fr.sep:hover { background: var(--card-3); }
+  .feed-b .empty { padding: 12px; color: var(--faint); font-size: 11.5px; line-height: 1.6; }
+  .side-rest { flex: 1; overflow: auto; min-height: 0; }
+  .cref { color: var(--accent); cursor: pointer; border-bottom: 1px dotted rgba(240,180,41,.6); }
+  .cref:hover { background: var(--accent-soft); }
+  .pill { display: inline-block; font-family: var(--font); font-size: 10.5px; font-weight: 600; line-height: 15px; padding: 0 7px; border-radius: 8px; white-space: nowrap; }
+  .pill.buy { color: var(--buy); background: var(--buy-soft); border: 1px solid rgba(38,166,154,.45); }
+  .pill.sell { color: var(--sell); background: var(--sell-soft); border: 1px solid rgba(239,83,80,.45); }
+  .pill.liq { color: var(--liq); background: rgba(179,136,255,.12); border: 1px solid rgba(179,136,255,.5); }
+  .side { border-left: 1px solid var(--border); overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+  .side-sec { border-bottom: 1px solid var(--border); }
+  .ep-head { position: sticky; top: 0; z-index: 2; background: var(--card); border-bottom: 1px solid var(--border); }
+  .side-h { padding: 8px 12px; display: flex; align-items: center; gap: 8px; background: var(--card); }
+  .side-h .t { font-weight: 650; line-height: 1.4; } .side-h .m { color: var(--muted); font-size: 11.5px; }
+  .ep-pnl { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+  .ptabs { display: flex; padding: 0 6px; background: var(--card-2); border-top: 1px solid var(--border); }
+  .ptab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 6px 9px 5px; cursor: pointer; font-size: 11px; font-family: var(--mono); letter-spacing: .04em; }
+  .ptab.on { color: var(--accent); border-bottom-color: var(--accent); }
+  .side-b { padding: 4px 12px 10px; }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 6px 0 8px; }
+  .kv div { background: var(--card-2); border: 1px solid var(--border); border-radius: var(--r-s); padding: 5px 8px; }
+  .kv .k { color: var(--muted); font-size: 10.5px; } .kv .v { font-weight: 600; font-size: 12.5px; font-family: var(--mono); }
+  .lad { display: grid; grid-template-columns: 56px 84px 1fr; gap: 3px 8px; align-items: center; font-size: 11.5px; margin-top: 4px; }
+  .lad .p { text-align: right; color: var(--muted); font-family: var(--mono); }
+  .lad .bar { height: 10px; border-radius: 2px; background: var(--card-3); position: relative; overflow: hidden; }
+  .lad .bar i { position: absolute; left: 0; top: 0; bottom: 0; }
+  .lad .bar.buy i { background: var(--buy); } .lad .bar.sell i { background: var(--sell); }
+  .lad .bar.buy { outline: 1px solid rgba(38,166,154,.35); } .lad .bar.sell { outline: 1px solid rgba(239,83,80,.35); }
+  .lad .lbl { color: var(--muted); white-space: normal; line-height: 1.3; text-transform: none; letter-spacing: 0; font-family: var(--font); font-size: 11.5px; margin: 0; }
+  .lad .lbl b { color: var(--fg); font-weight: 600; }
+  .lad .exit .p, .lad .exit .lbl { opacity: .75; }
+  .ord { border-bottom: 1px solid var(--border); padding: 7px 0; }
+  .ord:last-child { border-bottom: 0; }
+  .ord .l1 { display: flex; justify-content: space-between; gap: 8px; }
+  .ord .l2 { color: var(--muted); font-size: 11.5px; }
+  .ord.link { cursor: pointer; } .ord.link:hover { background: var(--card-2); margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+  .act-buy { color: var(--buy); } .act-sell { color: var(--sell); }
+  .expl { font-size: 12px; line-height: 1.65; color: var(--fg); }
+  .expl p { margin: 0 0 7px; } .expl b { font-weight: 650; }
+  .expl .lead { margin: 0 0 8px; line-height: 1.6; }
+  .expl.note { background: rgba(240,180,41,.06); border-left: 2px solid var(--accent); padding: 8px 10px; border-radius: 0 var(--r-s) var(--r-s) 0; margin-bottom: 4px; }
+  .csec, .nsec { margin: 0 0 8px; }
+  .csec ul, .nsec ul { margin: 0; padding-left: 14px; color: var(--fg); }
+  .csec li, .nsec li { margin-bottom: 3px; line-height: 1.55; font-size: 12px; }
+  .csec ul.lessons li { color: var(--muted); }
+  .legs { list-style: none; padding-left: 0 !important; }
+  .legs li { display: grid; grid-template-columns: 52px 1fr; gap: 6px; padding: 3px 0; border-bottom: 1px dashed var(--border); font-size: 11.5px; }
+  .legs .n { color: var(--accent); font-weight: 700; font-family: var(--mono); white-space: nowrap; }
+  .legs .t { color: var(--muted); font-family: var(--mono); }
+  .legs .r { font-family: var(--mono); font-weight: 600; }
+  .side-sec > * { animation: rise .2s ease both; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 11px; padding: 6px 16px; }
+  .legend svg { vertical-align: -3px; margin-right: 4px; }
+  .caveat { color: var(--faint); font-size: 11px; padding: 0 16px 8px; line-height: 1.6; }
+  footer { padding: 12px 16px 22px; color: var(--faint); font-size: 11px; border-top: 1px solid var(--border); line-height: 1.6; }
+  @media (max-width: 1100px) {
+    .term { grid-template-columns: 1fr; height: auto; min-height: 0; }
+    /* 좁은 화면 순서: 차트 → 피드·해설 → 월 요약·라운드트립 목록 */
+    .tcenter { order: 1; } .side { order: 2; height: 82vh; } .tside { order: 3; height: 60vh; }
+    .tside, .side { border: 0; border-bottom: 1px solid var(--border); }
+    #fillChartWrap { flex: none; height: 62vh; min-height: 380px; }
+  }
+  @media (max-width: 700px) {
+    header { height: auto; flex-wrap: wrap; gap: 0; padding: 6px 12px 0; }
+    header h1 { width: 100%; font-size: 12.5px; } header h1 small { margin-left: 6px; }
+    .tabs { width: 100%; } .tab { flex: 1; padding: 8px 4px; font-size: 12px; }
+    .statusbar { padding: 4px 12px; }
+    .box { margin: 0 10px 10px; } .cards { margin: 10px 10px 8px; }
+    .intro-b { grid-template-columns: 1fr; }
+    .years { grid-template-columns: 1fr; }
+    #timeline { height: 640px; }
+    .navbar { flex-wrap: wrap; } .nav-map { flex-basis: 100%; order: 2; }
+    .navbar .seg { width: 100%; } .navbar .seg button { flex: 1; padding: 6px 0; font-size: 14px; }
+    .heat { padding: 8px; gap: 3px; } .heat .hc { min-height: 40px; }
+    .cmd { padding: 6px 12px; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>워뇨띠(aoa) BitMEX 체결 분석 <small>XBTUSD · 2018-03 → 2021-12 · KST</small></h1>
+  <nav class="tabs">
+    <button class="tab" data-view="balance">잔고 · 출금 · 월별 손익</button>
+    <button class="tab" data-view="fills">체결 차트 · 라운드트립</button>
+  </nav>
+</header>
+<div class="statusbar"><span>체결 <b>941,007</b></span><span>1분봉 <b>2,018,880</b> (빠진 분 0)</span><span>포지션 검증 <b>3,961/3,961</b> 펀딩 시점 일치</span><span>체결가 봉 범위 안 <b>99.999%</b></span><span>지갑 누적합 <b>737.27 BTC</b> 원본 일치</span><span>검증일 2026-09-24</span></div>
+<main>
+  <section class="view" id="view-balance">
+    <div class="box intro">
+      <div class="box-h"><h2>이 자료는</h2><span class="note">워뇨띠가 공개한 BitMEX 거래내역(2018-03 ~ 2021-12, 계정 aoa)을 체결 한 건 단위로 다시 그린 학습용 뷰어 · 매매 신호를 베끼는 용도가 아니라 크기·사다리·청산·출금 습관을 보는 용도</span></div>
+      <div class="intro-b">
+        <div>
+          <div class="sec-h">핵심 발견 5가지</div>
+          <ol>
+            <li><b class="num">0.17 BTC</b>(2018-03-05 첫 입금)로 시작해 최고 <b class="num">1,531 BTC</b>(2021-06-19). 4년 실현손익 <b class="num">+3,537 BTC</b>, 그중 <b class="num">2,815 BTC(80%)</b>를 출금.</li>
+            <li><b>베팅 크기가 줄었다.</b> 잔고 대비 중앙값 2018년 <b class="num">3.8배</b> → 2021년 <b class="num">0.7배</b>. 5배 이상 비율 41% → 0%, 강제청산 16건 → 0건.</li>
+            <li><b>큰 포지션은 사다리, 작은 건 한 방.</b> 상위 10% 라운드트립은 진입 주문 중앙값 8개·가격 7층. 전체의 46.5%는 주문 1개로 진입.</li>
+            <li><b>흔들림은 매매로 관리.</b> 눌림에 되사고 반등에 되팔며 포지션을 0으로 만들지 않는 방식(#2537 +226 BTC, #2511 +166 BTC). 같은 방식이 −10% 역행을 만나면 −148 BTC(#2539).</li>
+            <li><b>비용.</b> XBTUSD 4년 수수료 순지출 85 BTC, 펀딩 순수취 22 BTC(2021년 +38 BTC). 2021년엔 메이커 리베이트로 수수료를 +9.5 BTC 돌려받음.</li>
+          </ol>
+        </div>
+        <div>
+          <div class="sec-h">읽는 법</div>
+          <ol>
+            <li><b>라운드트립</b> = 포지션 0 → 진입 → 다시 0. 아래 표에서 하나를 누르면 체결 차트로 이동한다.</li>
+            <li><b>차트</b>: ▲매수 ▼매도, 꽉 찬 것 = 포지션 키움, 빈 것 = 줄임. 오른쪽 <b>사다리</b> = 그 구간에 걸었던 주문(길이 = 크기, 진한 부분 = 체결). 아래 패널 = 포지션 크기.</li>
+            <li><b>오른쪽 패널</b>: 📝 튜터 노트 → 자동 해설 → 매매 일지 → 사다리 순서. 캔들에 마우스를 올리면 그 봉의 주문이, 클릭하면 고정된다. Esc = 선택 해제.</li>
+            <li><b>용어</b>: 잔고 대비 = 최대 포지션 ÷ (시작 전날 잔고 × 진입 평균가). 1계약 = 1달러. 시각은 한국시간, 월 구분은 UTC.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+    <div class="cards" id="cards"></div>
+    <div class="box">
+      <div class="box-h"><h2>연도별 한눈에</h2><span class="note">잔고는 연초 → 연말 · 실현손익·출금은 그 해 합 · 배수는 라운드트립 최대 포지션 ÷ 잔고의 중앙값 · 승률은 순손익 기준 · 작은 선 = 그 해 잔고 흐름</span></div>
+      <div class="years" id="years"></div>
+    </div>
+    <div class="box">
+      <div class="box-h">
+        <h2>타임라인</h2>
+        <span class="note">1단 잔고(실선) · 잔고+누적출금(점선) · 달러 환산(파란 면, 왼쪽 축) · 입금 ↑ · 📝 = 튜터 노트(누르면 그 라운드트립으로) &nbsp;|&nbsp; 2단 월별 실현손익 &nbsp;|&nbsp; 3단 라운드트립의 잔고 대비 배수(빨강 = 5배 이상, 로그축) &nbsp;|&nbsp; 4단 출금(BTC) · 네 단이 같은 시간축 · 차트는 끌어도 안 움직임 — <b>아래 이동 막대</b>(미니맵을 누르면 그 위치로)나 기간 버튼으로</span>
+        <span class="spacer"></span>
+        <span class="grp"><span class="lbl">기간</span><span class="seg" id="rangeSeg"><button data-v="all" class="on">전체</button><button data-v="2018">2018</button><button data-v="2019">2019</button><button data-v="2020">2020</button><button data-v="2021">2021</button></span></span>
+        <span class="grp"><span class="lbl">잔고축</span><span class="seg" id="balScale"><button data-v="0" class="on">일반</button><button data-v="1">로그</button></span></span>
+        <span class="grp"><span class="lbl">손익</span><span class="seg" id="pnlUnit"><button data-v="btc" class="on">BTC</button><button data-v="usd">USD</button></span></span>
+      </div>
+      <div class="chart" id="timeline"></div>
+      <div class="navbar" id="tlNav"></div>
+    </div>
+    <div class="box">
+      <div class="box-h"><h2>월별 실현손익 히트맵</h2><span class="note">큰 숫자 = 그 달 실현손익(BTC, 전 종목) · 작은 숫자 = 월초 잔고 대비 % · 칸을 누르면 그 달 체결 차트로</span><span class="spacer"></span><span class="grp"><span class="lbl">색 기준</span><span class="seg" id="heatBasis"><button data-v="pct" class="on">잔고 대비 %</button><button data-v="abs">BTC 절대값</button></span></span></div>
+      <div class="heat" id="heat"></div>
+      <div id="htip"></div>
+    </div>
+    <div class="box">
+      <div class="box-h"><h2>베팅 비중의 변화</h2><span class="note">라운드트립의 최대 포지션 ÷ (시작 전날 마감 잔고 × 진입 평균가) · 1배 = 잔고만큼</span></div>
+      <div class="cards inner" id="levCards"></div>
+      <div class="tbl-wrap"><table id="levTable"></table></div>
+    </div>
+    <div class="box">
+      <div class="box-h"><h2>출금 기록</h2><span class="note">출금 직전 잔고 = 그날 마감 잔고 + 출금액(하루 안의 순서는 데이터에 없어 추정) · 달러 환산 = 그날 종가 · 행을 누르면 타임라인이 그 시점으로 이동</span></div>
+      <div class="cards inner" id="wdCards"></div>
+      <div class="tbl-wrap"><table id="wdTable"></table></div>
+    </div>
+    <div class="box">
+      <div class="box-h"><h2>월별 표</h2><span class="note">행을 누르면 그 달 체결 차트로 이동합니다</span></div>
+      <div class="tbl-wrap"><table id="monthTable"></table></div>
+    </div>
+    <div class="box">
+      <div class="box-h"><h2>가장 큰 라운드트립 TOP 30</h2><span class="note">📝 = 튜터 노트 있음 · 최대 포지션 기준 · "잔고 대비" 열을 누르면 비중 순으로 정렬 · 손익은 가격 기준(수수료·펀딩 제외) · 행을 누르면 그 라운드트립으로 이동</span></div>
+      <div class="tbl-wrap"><table id="topEpTable"></table></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-fills">
+    <div class="cmd">
+      <span class="p">›</span><span class="k">RT</span>
+      <span class="ep-nav"><button id="prevEp" title="이전 라운드트립">◀</button><button id="nextEp" title="다음 라운드트립">▶</button></span>
+      <span id="cmdEp" class="v">라운드트립을 고르세요</span>
+      <select class="ctl" id="epSel" style="display:none"></select>
+      <span class="spacer"></span>
+      <span class="grp"><span class="lbl">봉</span>
+        <span class="seg" id="tfSeg">
+          <button data-v="60">1분</button><button data-v="300">5분</button><button data-v="1800">30분</button>
+          <button data-v="3600">1시간</button><button data-v="14400">4시간</button><button data-v="86400">1일</button>
+        </span></span>
+      <span class="grp"><span class="lbl">체결</span>
+        <span class="seg" id="liqSeg"><button data-v="all" class="on">전체</button><button data-v="maker">메이커</button><button data-v="taker">테이커</button></span></span>
+      <span class="grp"><span class="lbl">표시</span>
+        <label class="chk"><input type="checkbox" id="showFills" checked>체결점</label>
+        <label class="chk"><input type="checkbox" id="showOrders" checked>주문선</label>
+        <label class="chk"><input type="checkbox" id="showLadder" checked>사다리</label>
+        <label class="chk"><input type="checkbox" id="showPos" checked>포지션</label>
+        <label class="chk"><input type="checkbox" id="showEps" checked>구간</label></span>
+    </div>
+    <div class="term">
+      <aside class="tside">
+        <div class="tside-h"><button class="btn" id="prevMonth" title="이전 달">◀</button><select class="ctl" id="monthSel"></select><button class="btn" id="nextMonth" title="다음 달">▶</button></div>
+        <div class="msum" id="chips"></div>
+        <div class="rtlist" id="rtList"></div>
+        <div class="tside-h" style="position:static;border-top:1px solid var(--border)"><span class="lbl">이동</span><select class="ctl" id="daySel" title="이 날로 이동 (한국시간)"></select></div>
+      </aside>
+      <div class="tcenter">
+        <div id="fillChartWrap">
+          <div id="fillChart"></div>
+          <canvas id="overlay"></canvas>
+          <div id="hud"></div>
+          <div id="chartMsg"></div>
+        </div>
+        <div class="navbar" id="fillNav"></div>
+      </div>
+      <aside class="side" id="side">
+        <section class="feed" id="feed">
+          <div class="feed-h" title="한 줄 = 매매 한 묶음(같은 방향이 30분 안에 이어지면 묶음) · 시각 = 체결 시각(KST), 주문을 넣은 시각은 데이터에 없음 · 메이커 = 미리 걸어둔 지정가가 체결 · 테이커 = 그 순간 시장가처럼 긁음 · 막대 전체 = 이 라운드트립의 최대 포지션, 회색 = 이 줄 뒤 누적, 색 = 이번에 늘리거나 줄인 몫 · 오른쪽 % = 이 줄 뒤 포지션이 최대의 몇 %"><span class="t">매매 피드</span><span class="m" id="feedMeta"></span><span class="spacer"></span><button class="btn" id="feedFold">접기</button></div>
+          <div class="feed-b" id="feedList"><div class="empty">화면에 보이는 라운드트립의 매매 순서가 여기 나옵니다.</div></div>
+        </section>
+        <div class="side-rest">
+          <div class="side-sec" id="epCard"></div>
+          <div class="side-sec" id="barCard"></div>
+        </div>
+      </aside>
+    </div>
+    <div class="legend">
+      <span><svg width="14" height="14"><path d="M7 2 L13 12 L1 12 Z" fill="var(--buy)"/></svg>매수 · 포지션 키움</span>
+      <span><svg width="14" height="14"><path d="M7 2 L13 12 L1 12 Z" fill="none" stroke="var(--buy)" stroke-width="1.6"/></svg>매수 · 포지션 줄임(숏 정리)</span>
+      <span><svg width="14" height="14"><path d="M7 12 L13 2 L1 2 Z" fill="var(--sell)"/></svg>매도 · 포지션 키움</span>
+      <span><svg width="14" height="14"><path d="M7 12 L13 2 L1 2 Z" fill="none" stroke="var(--sell)" stroke-width="1.6"/></svg>매도 · 포지션 줄임(롱 정리)</span>
+      <span><svg width="14" height="14"><path d="M2 2 L12 12 M12 2 L2 12" stroke="var(--liq)" stroke-width="2.4"/></svg>강제청산</span>
+      <span><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--buy)" stroke-width="2"/></svg>매수 주문가 <svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--sell)" stroke-width="2"/></svg>매도 주문가</span>
+      <span><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3"/></svg>점선 = 일부만 체결</span>
+      <span>오른쪽 사다리 = 보이는 구간의 주문(막대 길이 = 주문 크기, 진한 부분 = 체결된 양)</span>
+      <span><svg width="14" height="14"><line x1="7" y1="1" x2="7" y2="13" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 2"/></svg>세로 점선 = 라운드트립 시작</span>
+      <span><svg width="22" height="12"><rect x="1" y="1" width="9" height="10" fill="rgba(38,166,154,.25)"/><rect x="12" y="1" width="9" height="10" fill="rgba(239,83,80,.25)"/></svg>배경 띠 = 보유 구간(초록 롱 · 빨강 숏)</span>
+      <span><svg width="22" height="10"><rect x="1" y="1" width="20" height="8" fill="rgba(239,83,80,.2)"/><line x1="1" y1="5" x2="21" y2="5" stroke="var(--sell)" stroke-width="1.5"/></svg>반투명 가로 막대 = 그 주문의 첫 체결 → 마지막 체결</span>
+      <span>점 크기 = 체결 수량</span>
+    </div>
+    <div class="caveat">
+      ⚠️ 데이터에는 <b>체결된 기록만</b> 있습니다. 주문을 넣은 시각과 한 번도 체결되지 않은 주문은 알 수 없습니다. 그래서 "첫 체결" 시각을 씁니다. 메이커 체결은 그 전부터 호가에 걸려 있던 주문이고, 테이커 체결은 그 순간 시장가처럼 긁은 것입니다.
+      월 구분은 UTC 기준(매달 1일 09시 시작) · 1계약 = 1달러 · 라운드트립 손익은 가격+펀딩+수수료(순손익) 또는 가격 기준으로 표기
+    </div>
+    <div class="box" style="margin-top:8px">
+      <div class="box-h"><h2>이 달의 라운드트립</h2><span class="note" id="epTableNote">열 제목을 누르면 정렬 · 행을 누르면 차트가 그 라운드트립으로 이동 · 가격 층 = 체결 당시 주문 가격의 종류 수(주문 가격을 옮기면 층이 주문 수보다 많아질 수 있음)</span></div>
+      <div class="tbl-wrap"><table id="epTable"></table></div>
+    </div>
+  </section>
+</main>
+<footer>출처: aoa_public_2021-12-31_with_letter (워뇨띠 공개 거래내역, BitMEX 계정 aoa) · 차트: TradingView Lightweight Charts v5.2.1 (Apache-2.0) · 시각 KST · 이 뷰어는 학습용이며 투자 조언이 아님</footer>
+<script src="lib/lightweight-charts-v5.js"></script>
+<script>window.__data = window.__data || {};</script>
+<script src="data/wallet.js"></script>
+<script src="data/index.js"></script>
+<script src="data/episodes.js"></script>
+<script src="data/notes.js"></script>
+<script src="data/expl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
