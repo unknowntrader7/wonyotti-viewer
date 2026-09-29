@@ -115,6 +115,46 @@
   #htip .tr span:first-child { color: var(--muted); }
   #htip .tr b { font-family: var(--mono); font-weight: 500; text-align: right; }
   #htip .tf { color: var(--faint); font-size: 10.5px; margin-top: 4px; }
+  /* ---------- 가설 검증 탭 ---------- */
+  .hsum { display: grid; gap: 1px; background: var(--border); }
+  .hs { display: grid; grid-template-columns: 34px 1fr auto; gap: 2px 10px; align-items: center; padding: 8px 12px; background: var(--card); color: var(--fg); text-decoration: none; }
+  .hs:hover { background: var(--card-2); }
+  .hs .hn { grid-column: 2 / -1; color: var(--muted); font-size: 11.5px; }
+  .hs .ht { font-weight: 600; }
+  .hid { font-family: var(--mono); font-weight: 700; color: var(--accent); } .hid.big { font-size: 14px; }
+  .vp { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 9px; border-radius: 9px; white-space: nowrap; }
+  .vp.ok { color: var(--buy); background: var(--buy-soft); border: 1px solid rgba(38,166,154,.5); }
+  .vp.part { color: var(--accent); background: var(--accent-soft); border: 1px solid rgba(240,180,41,.5); }
+  .vp.no { color: var(--sell); background: var(--sell-soft); border: 1px solid rgba(239,83,80,.5); }
+  .hbody { padding: 10px 12px 12px; }
+  .hclaim { background: var(--card-2); border: 1px solid var(--border); border-radius: var(--r-s); padding: 8px 10px; font-size: 12.5px; }
+  .hclaim .lbl { display: block; margin-bottom: 2px; } .hvn { color: var(--accent); font-size: 11.5px; margin-top: 3px; }
+  .hbody .cards.inner { padding: 10px 0 0; }
+  .hgrid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; margin-top: 6px; }
+  .hf { margin: 0; padding-left: 16px; } .hf li { margin-bottom: 5px; line-height: 1.6; font-size: 12px; }
+  .hb { background: var(--card-2); border: 1px solid var(--border); border-radius: var(--r-s); padding: 8px 10px; margin-top: 8px; }
+  .hb-t { font-family: var(--mono); font-size: 10.5px; color: var(--faint); letter-spacing: .06em; margin-bottom: 6px; }
+  .hb-r { display: grid; grid-template-columns: 38px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+  .hb-r:last-of-type { border-bottom: 0; }
+  .hb-l { font-family: var(--mono); font-size: 11px; color: var(--muted); padding-top: 1px; }
+  .hb-i { display: grid; grid-template-columns: 62px 1fr 48px; gap: 6px; align-items: center; font-size: 10.5px; line-height: 15px; }
+  .hb-n { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hb-track { position: relative; height: 8px; background: var(--card-3); border-radius: 2px; }
+  .hb-bar { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; }
+  .hb-ref { position: absolute; top: -3px; bottom: -3px; width: 1px; background: rgba(230,235,240,.55); z-index: 1; }
+  .c-sell { background: var(--sell); } .c-buy { background: var(--buy); } .c-q, .c-accent { background: var(--accent); } .c-muted { background: #5c6672; }
+  .hb-x { text-align: right; color: var(--fg); font-size: 10.5px; }
+  .hb-foot { color: var(--faint); font-size: 10.5px; margin-top: 4px; }
+  .htab td, .htab th { text-align: right; } .htab td:first-child, .htab th:first-child { text-align: left; }
+  .htab tbody tr { cursor: default; }
+  .hex { display: flex; flex-direction: column; }
+  .hex-r { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; font-family: var(--mono); }
+  .hex-a { display: inline-flex; gap: 4px; flex: none; }
+  .hrule { margin-top: 12px; background: rgba(240,180,41,.07); border-left: 2px solid var(--accent); padding: 8px 10px; border-radius: 0 var(--r-s) var(--r-s) 0; font-size: 12.5px; line-height: 1.6; }
+  .hrule .lbl { display: block; color: var(--accent); }
+  .hmore { margin-top: 10px; } .hmore summary { cursor: pointer; color: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+  .hq { padding: 8px 12px 10px; } .hq-i { padding: 4px 0; font-size: 12.5px; border-bottom: 1px dashed var(--border); }
+  @media (max-width: 900px) { .hgrid { grid-template-columns: 1fr; } .hex-r { flex-direction: column; align-items: flex-start; } }
   /* ---------- 체결 탭: 명령줄 + 3열 ---------- */
   .cmd { display: flex; align-items: center; gap: 12px; padding: 6px 16px; border-bottom: 1px solid var(--border); background: var(--card); font-family: var(--mono); font-size: 12px; flex-wrap: wrap; }
   .cmd .p { color: var(--accent); font-weight: 700; } .cmd .k { color: var(--muted); } .cmd .v { color: var(--fg); }
@@ -250,6 +290,7 @@
   <nav class="tabs">
     <button class="tab" data-view="balance">잔고 · 출금 · 월별 손익</button>
     <button class="tab" data-view="fills">체결 차트 · 라운드트립</button>
+    <button class="tab" data-view="hypo">가설 검증</button>
   </nav>
 </header>
 <div class="statusbar"><span>체결 <b>941,007</b></span><span>1분봉 <b>2,018,880</b> (빠진 분 0)</span><span>포지션 검증 <b>3,961/3,961</b> 펀딩 시점 일치</span><span>체결가 봉 범위 안 <b>99.999%</b></span><span>지갑 누적합 <b>737.27 BTC</b> 원본 일치</span><span>검증일 2026-09-24</span></div>
@@ -392,6 +433,17 @@
       <div class="tbl-wrap"><table id="epTable"></table></div>
     </div>
   </section>
+  <section class="view" id="view-hypo">
+    <div class="box intro" style="margin-top:12px">
+      <div class="box-h"><h2>가설 검증 — 워뇨띠는 정말 그렇게 했나</h2></div>
+      <div class="hint" style="padding:8px 12px 10px;line-height:1.7;color:var(--muted)">
+        차트를 눈으로 보면 기억에 남는 큰 판만 보게 된다. 그래서 “워뇨띠는 ~할 때 ~한다”를 한 줄로 세우고, 라운드트립 2,590개(와 지갑 기록) <b>전부</b>로 맞는 비율을 센다.
+        <b>채택</b> = 대부분 맞음 · <b>부분 채택</b> = 특정 시기·조건에서만 · <b>기각</b> = 안 맞음. 예외 사례 버튼을 누르면 그 라운드트립 차트로 간다.
+        데이터에 없는 것: 주문을 넣은 시각, 체결 안 된 주문, 판단 이유 — 그래서 ‘왜’는 늘 추측이다.
+      </div>
+    </div>
+    <div id="hypoList"></div>
+  </section>
 </main>
 <footer>출처: aoa_public_2021-12-31_with_letter (워뇨띠 공개 거래내역, BitMEX 계정 aoa) · 차트: TradingView Lightweight Charts v5.2.1 (Apache-2.0) · 시각 KST · 이 뷰어는 학습용이며 투자 조언이 아님</footer>
 <script src="lib/lightweight-charts-v5.js"></script>
@@ -401,6 +453,7 @@
 <script src="data/episodes.js"></script>
 <script src="data/notes.js"></script>
 <script src="data/expl.js"></script>
+<script src="data/hypo.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

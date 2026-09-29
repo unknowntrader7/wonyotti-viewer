@@ -130,13 +130,13 @@ const state = {
 };
 function readHash() {
   const [v, m, tf, ep] = location.hash.replace('#', '').split('/');
-  if (v === 'balance' || v === 'fills') state.view = v;
+  if (v === 'balance' || v === 'fills' || v === 'hypo') state.view = v;
   if (m && IDX.some((x) => x.month === m)) state.month = m;
   if (tf && TF_NAME[tf]) state.tf = Number(tf);
   if (ep && /^ep\d+$/.test(ep)) state.pendingEp = Number(ep.slice(2));
 }
 function saveHash() {
-  const h = state.view === 'fills' ? `#fills/${state.month}/${state.tf}${state.ep != null ? '/ep' + state.ep : ''}` : '#balance';
+  const h = state.view === 'fills' ? `#fills/${state.month}/${state.tf}${state.ep != null ? '/ep' + state.ep : ''}` : '#' + state.view;
   history.replaceState(null, '', h);
   store.set('month', state.month); store.set('tf', state.tf);
 }
@@ -146,7 +146,7 @@ function showView(v) {
   document.querySelectorAll('.view').forEach((s) => s.classList.toggle('on', s.id === 'view-' + v));
   saveHash();
   window.scrollTo({ top: 0 });
-  if (v === 'balance') ensureBalance(); else ensureFills();
+  if (v === 'balance') ensureBalance(); else if (v === 'hypo') ensureHypo(); else ensureFills();
 }
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
 function segInit(el, value, onChange) {
@@ -260,7 +260,7 @@ let tlNav = null, fillNav = null;
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || (e.target.closest && e.target.closest('input, select, textarea'))) return;
   const a = { ArrowLeft: 'left', ArrowRight: 'right', '+': 'in', '=': 'in', '-': 'out', '0': 'fit' }[e.key];
-  const nav = state.view === 'fills' ? fillNav : tlNav;
+  const nav = state.view === 'fills' ? fillNav : state.view === 'balance' ? tlNav : null;
   if (!a || !nav) return;
   e.preventDefault(); nav.act(a);
 });
@@ -735,6 +735,58 @@ function buildWithdrawals(tc) {
     const iso = (s) => new Date(s * 1000).toISOString().slice(0, 10);
     tc.timeScale().setVisibleRange({ from: iso(t - 120 * 86400), to: iso(t + 120 * 86400) });
     $('#timeline').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
+
+/* ---------- 탭 3: 가설 검증 (scripts/hypotheses.py → data/hypo.js) ---------- */
+let hypoReady = false;
+const VERDICT = { '채택': 'ok', '부분 채택': 'part', '기각': 'no' };
+function hypoBars(b) {
+  // 가로 막대 작은 그림: 줄 = 연도, 막대 = 값. log면 로그 눈금. ref(예: 1.0)에 세로선
+  const all = b.rows.flatMap((r) => r.vals.map((v) => v.v)).filter((v) => v > 0);
+  const hi = Math.max(...all, b.ref || 0), lo = b.log ? Math.min(...all) * 0.8 : 0;
+  const W = (v) => (b.log ? (100 * Math.log(v / lo)) / Math.log((hi * 1.05) / lo) : (100 * v) / (hi * 1.05));
+  const fmt = (v) => (b.fmt === '%' ? nf(v, 0) + '%' : nf(v, 2) + '배');
+  const refX = b.ref != null ? W(b.ref) : null;
+  return `<div class="hb"><div class="hb-t">${b.title}${b.log ? ' · 로그 눈금' : ''}</div>` + b.rows.map((r) => `<div class="hb-r"><span class="hb-l">${r.label}</span><div class="hb-v">`
+    + r.vals.map((v, i) => `<div class="hb-i"><span class="hb-n">${v.name}</span><span class="hb-track">${refX != null ? `<i class="hb-ref" style="left:${refX}%"></i>` : ''}<i class="hb-bar c-${v.c}" style="width:${Math.max(1, W(v.v))}%;${v.c === 'q' ? `opacity:${0.35 + 0.16 * i}` : ''}"></i></span><span class="hb-x num">${fmt(v.v)}</span></div>`).join('')
+    + `</div></div>`).join('') + (refX != null ? `<div class="hb-foot">세로선 = ${fmt(b.ref)}</div>` : '') + `</div>`;
+}
+function ensureHypo() {
+  if (hypoReady) return;
+  hypoReady = true;
+  const H = window.__data.hypo;
+  const el = $('#hypoList');
+  if (!H) { el.innerHTML = '<div class="box"><div class="hint" style="padding:12px">가설 데이터(data/hypo.js)가 없습니다. python3 scripts/hypotheses.py 를 실행하세요.</div></div>'; return; }
+  const summary = `<div class="box"><div class="box-h"><h2>한눈에</h2><span class="note">계산일 ${H.built} · 누르면 그 가설로</span></div><div class="hsum">`
+    + H.items.map((it) => `<a class="hs" href="#hypo" data-go="${it.id}"><span class="hid">${it.id}</span><span class="ht">${it.title}</span><span class="vp ${VERDICT[it.verdict]}">${it.verdict}</span><span class="hn">${it.verdict_note}</span></a>`).join('')
+    + `</div></div>`;
+  const queue = `<div class="box"><div class="box-h"><h2>대기 중인 가설</h2><span class="note">study/가설노트.md 의 ‘대기 중’에 한 줄로 적고 Claude에게 “가설 검증해줘”</span></div><div class="hq">`
+    + (H.queue.length ? H.queue.map((q) => `<div class="hq-i">🟡 ${q}</div>`).join('') : '<div class="hint">아직 없습니다. 뷰어를 보다가 “워뇨띠는 ~할 때 ~한다”가 떠오르면 노트에 적어 주세요.</div>')
+    + `</div></div>`;
+  const card = (it) => `<div class="box hcard" id="hypo-${it.id}">
+    <div class="box-h"><span class="hid big">${it.id}</span><h2>${it.title}</h2><span class="lbl">${it.area}</span><span class="spacer"></span><span class="vp ${VERDICT[it.verdict]}">${it.verdict}</span></div>
+    <div class="hbody">
+      <div class="hclaim"><span class="lbl">검증한 문장</span>${it.claim}<div class="hvn">${it.verdict_note}</div></div>
+      <div class="cards inner">${it.kpis.map(([k, v, s], i) => `<div class="card" style="--i:${i}"><div class="k">${k}</div><div class="v num">${v}</div><div class="s">${s}</div></div>`).join('')}</div>
+      <div class="hgrid">
+        <div><div class="sec-h">발견</div><ul class="hf">${it.findings.map((f) => `<li>${f}</li>`).join('')}</ul></div>
+        <div>${hypoBars(it.bars)}</div>
+      </div>
+      <div class="sec-h">연도별</div>
+      <div class="tbl-wrap"><table class="htab"><thead><tr>${it.table.head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${it.table.rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      ${it.exceptions.map((x) => `<div class="sec-h">예외 · ${x.title}</div><div class="hex">${x.rows.length ? x.rows.map((r) => `<div class="hex-r"><span>${r.text}</span><span class="hex-a">${r.a != null ? `<button class="btn" data-ep="${r.a}">#${r.a}</button><button class="btn" data-ep="${r.b}">#${r.b}</button>` : `<button class="btn" data-month="${r.month}">${r.month} 차트</button>`}</span></div>`).join('') : '<div class="hint">없음</div>'}</div>`).join('')}
+      <div class="hrule"><span class="lbl">내 규칙 초안</span>${it.rule}</div>
+      <details class="hmore"><summary>방법 · 한계</summary><div class="sec-h">방법</div><ul class="hf">${it.method.map((m) => `<li>${m}</li>`).join('')}</ul><div class="sec-h">한계</div><ul class="hf">${it.limits.map((m) => `<li>${m}</li>`).join('')}</ul></details>
+    </div></div>`;
+  el.innerHTML = summary + H.items.map(card).join('') + queue;
+  el.addEventListener('click', (ev) => {
+    const go = ev.target.closest('[data-go]');
+    if (go) { ev.preventDefault(); $('#hypo-' + go.dataset.go).scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    const b = ev.target.closest('button[data-ep]');
+    if (b) { gotoEpisode(Number(b.dataset.ep)); return; }
+    const m = ev.target.closest('button[data-month]');
+    if (m) gotoMonth(m.dataset.month);
   });
 }
 
