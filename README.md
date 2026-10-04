@@ -1,5 +1,7 @@
 # 워뇨띠 체결 뷰어
 
+배포 사이트: **https://wonyotti-viewer.pages.dev/**
+
 [sinsa-99/wonyotti-viewer](https://github.com/sinsa-99/wonyotti-viewer)의 포크입니다.
 TradingView Lightweight Charts로 원본 프로젝트의 체결·포지션·캔들·거래량 데이터를 표시합니다.
 
