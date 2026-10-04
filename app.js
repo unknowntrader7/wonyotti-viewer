@@ -1,3 +1,4 @@
+import { ACTIONS, aggregateCandles, directionColor, groupActionLabel, orderRoles } from './research.mjs';
 'use strict';
 /* 워뇨띠(aoa) 체결 분석 뷰어
  * 데이터: data/wallet.js, data/index.js, data/episodes.js (항상), data/f_YYYY-MM.js · data/c_YYYY-MM.js (달마다 필요할 때)
@@ -17,13 +18,8 @@ const $ = (s) => document.querySelector(s);
 // 라운드트립: [id, start, end|null, dir, maxpos, entryOrders, levels, entrySpanSec, priceRangePct, exitOrders, pnl, liq, takerPct, entryVwap, exitVwap,
 //            lev(잔고 대비 배수|null), balBtc(시작 전날 잔고|null), retPct(손익/잔고 %|null), fundingPnl(BTC), feePnl(BTC)]
 const netPnl = (e) => e[10] + e[18] + e[19];
-const ACT = {
-  1: { side: 'buy', inc: true, name: '매수 → 롱 키움' },
-  2: { side: 'sell', inc: false, name: '매도 → 롱 줄임(정리)' },
-  3: { side: 'sell', inc: true, name: '매도 → 숏 키움' },
-  4: { side: 'buy', inc: false, name: '매수 → 숏 줄임(정리)' },
-};
-const RGB = { buy: '38,166,154', sell: '239,83,80' };
+const ACT = ACTIONS;
+const RGB = { buy: '38,166,154', sell: '239,83,80', mixed: '240,180,41' };
 const FLAGS = [[8, '강제청산', 'liq'], [2, '스탑 발동'], [4, '포지션 청산 버튼'], [1, '주문 수정됨'], [16, 'Post-only'], [32, 'Close 전용']];
 const ORDTYPE = { Limit: '지정가', Market: '시장가', Stop: '스탑(시장가)', StopLimit: '스탑 지정가' };
 const TFS = [60, 300, 1800, 3600, 14400, 86400];
@@ -63,7 +59,7 @@ function dur(sec) {
 }
 const cls = (n) => (n > 0 ? 'pos' : n < 0 ? 'neg' : '');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const dirTag = (dir) => (dir > 0 ? '<span class="tag buy">롱</span>' : '<span class="tag sell">숏</span>');
+const dirTag = (dir) => (dir > 0 ? '<span class="tag buy">Long</span>' : '<span class="tag sell">Short</span>');
 function lowerBound(arr, t) {
   let lo = 0, hi = arr.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m][0] < t) lo = m + 1; else hi = m; }
@@ -126,6 +122,7 @@ const state = {
   ep: null, pendingEp: null,
   filter: 'all',
   showFills: true, showOrders: true, showLadder: true, showPos: true, showEps: true,
+  showVolume: true, showFisher: true,
   ptab: store.get('ptab', 'expl'),
 };
 function readHash() {
@@ -313,7 +310,7 @@ function ensureBalance() {
   sortableTable($('#monthTable'), mrows, [
     { key: 'm', label: '월' }, { key: 'b', label: '실현손익' }, { key: 'u', label: '달러 환산' }, { key: 'bal', label: '월말 잔고(BTC)' },
     { key: 'fills', label: 'XBTUSD 체결' }, { key: 'orders', label: '주문' }, { key: 'episodes', label: '라운드트립' }, { key: 'makerPct', label: '메이커' },
-    { key: 'maxLong', label: '최대 롱' }, { key: 'maxShort', label: '최대 숏' }, { key: 'liq', label: '강제청산' },
+    { key: 'maxLong', label: '최대 Long' }, { key: 'maxShort', label: '최대 Short' }, { key: 'liq', label: '강제청산' },
   ], (r) => `<tr data-id="${r.m}"><td>${r.m}</td><td class="${cls(r.b)}">${btc(r.b, 2, true)}</td><td class="${cls(r.u)}">${usd(r.u)}</td>
       <td>${nf(r.bal, 1)}</td><td>${nf(r.fills || 0)}</td><td>${nf(r.orders || 0)}</td><td>${nf(r.episodes || 0)}</td><td>${r.makerPct ?? '-'}%</td>
       <td class="pos">${usd(r.maxLong || 0)}</td><td class="neg">${usd(r.maxShort || 0)}</td><td>${r.liq ? `<span class="tag liq">${r.liq}</span>` : ''}</td></tr>`,
@@ -791,7 +788,7 @@ function ensureHypo() {
 }
 
 /* ---------- 탭 2: 체결 차트 · 라운드트립 ---------- */
-let fc, candleS, posS, ov, octx, cur = null, loadToken = 0, dirty = true, lastSig = '', hoverIdx = null, pinned = null, hoverLeg = null;
+let fc, candleS, volumeS, fisherS, triggerS, posS, ov, octx, cur = null, loadToken = 0, dirty = true, lastSig = '', hoverIdx = null, pinned = null, hoverLeg = null;
 const wrap = $('#fillChartWrap');
 function setMsg(text) { const el = $('#chartMsg'); el.innerHTML = text ? `<div>${text.includes('불러오는') ? '<div class="spin"></div>' : ''}${text}</div>` : ''; el.classList.toggle('on', !!text); }
 function ensureFills() {
@@ -799,12 +796,21 @@ function ensureFills() {
   if (!cur || cur.month !== state.month) loadMonth(state.month);
 }
 
-function setPanes(showPos) {
-  // 캔들:포지션 = 4:1. 포지션을 끄면 시리즈를 숨기고 패널을 최소로 줄인다 (빈 패널은 엔진이 지우므로 시리즈는 남겨 둠)
-  const [p0, p1] = fc.panes();
-  posS.applyOptions({ visible: showPos });
-  p0.setStretchFactor(4); p1.setStretchFactor(showPos ? 1 : 0.15);
-  fc.priceScale('right', 1).applyOptions({ scaleMargins: { top: 0.12, bottom: 0.08 }, visible: showPos });
+function setPanes() {
+  // 같은 시간축에 가격 · 시장 거래량 · Fisher9 · 실제 보유 포지션을 표시한다.
+  const panes = fc.panes();
+  panes[0].setStretchFactor(4);
+  for (const [index, visible, factor, series] of [
+    [1, state.showVolume, 1, [volumeS]],
+    [2, state.showFisher, 1.8, [fisherS, triggerS]],
+    [3, state.showPos, 1, [posS]],
+  ]) {
+    series.forEach((s) => s.applyOptions({ visible }));
+    panes[index].setStretchFactor(visible ? factor : 0.05);
+    // v5.2.1의 공통 축 레이아웃은 각 패널의 축 위젯을 요구한다.
+    // 숨길 때도 축을 유지하고 시리즈/높이만 줄여 null 축 위젯 오류를 피한다.
+    fc.priceScale('right', index).applyOptions({ scaleMargins: { top: 0.12, bottom: 0.08 }, visible: true });
+  }
 }
 function fillCapacity() { return Math.max(50, (wrap.clientWidth - (fc ? fc.priceScale('right').width() : 60)) / 0.5); }
 function initFillChart() {
@@ -819,15 +825,30 @@ function initFillChart() {
     priceFormat: { type: 'custom', formatter: (p) => nf(p, 1), minMove: 0.5 },
   });
   fc.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.06 } });
-  // 포지션은 패널 1 (자체 눈금). 3번째 인자 = 패널 번호
+  volumeS = fc.addSeries(LW.HistogramSeries, {
+    priceFormat: { type: 'volume' }, priceLineVisible: false, title: '시장 거래량(계약)',
+  }, 1);
+  fisherS = fc.addSeries(LW.LineSeries, {
+    color: '#58a6ff', lineWidth: 2, priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    priceLineVisible: false, title: 'Fisher9',
+  }, 2);
+  triggerS = fc.addSeries(LW.LineSeries, {
+    color: '#f0b429', lineWidth: 1, priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    priceLineVisible: false, title: 'Trigger(1봉 전)',
+  }, 2);
+  for (const price of [-1.5, 0, 1.5]) fisherS.createPriceLine({
+    price, color: price === 0 ? '#596574' : '#353d48', lineWidth: 1, lineStyle: LW.LineStyle.Dashed,
+    axisLabelVisible: false, title: '',
+  });
+  // 실제 포지션은 패널 3에 독립된 계약 수량 눈금으로 표시한다.
   posS = fc.addSeries(LW.BaselineSeries, {
     baseValue: { type: 'price', price: 0 }, lineWidth: 1,
     topLineColor: 'rgba(38,166,154,.9)', topFillColor1: 'rgba(38,166,154,.30)', topFillColor2: 'rgba(38,166,154,.04)',
     bottomLineColor: 'rgba(239,83,80,.9)', bottomFillColor1: 'rgba(239,83,80,.04)', bottomFillColor2: 'rgba(239,83,80,.30)',
-    priceFormat: { type: 'custom', formatter: (v) => (v > 0 ? '롱 ' : v < 0 ? '숏 ' : '') + usd(Math.abs(v)), minMove: 1 },
+    priceFormat: { type: 'custom', formatter: (v) => (v > 0 ? 'Long ' : v < 0 ? 'Short ' : '') + usd(Math.abs(v)), minMove: 1 },
     lastValueVisible: true, priceLineVisible: false, crosshairMarkerVisible: false, title: '포지션',
-  }, 1);
-  setPanes(true);
+  }, 3);
+  setPanes();
   ov = $('#overlay'); octx = ov.getContext('2d');
   wheelGuard(wrap);
   const feed = $('#feedList');
@@ -930,7 +951,9 @@ function initFillChart() {
   $('#showFills').addEventListener('change', (e) => { state.showFills = e.target.checked; dirty = true; });
   $('#showOrders').addEventListener('change', (e) => { state.showOrders = e.target.checked; dirty = true; });
   $('#showLadder').addEventListener('change', (e) => { state.showLadder = e.target.checked; dirty = true; });
-  $('#showPos').addEventListener('change', (e) => { state.showPos = e.target.checked; setPanes(state.showPos); dirty = true; });
+  $('#showPos').addEventListener('change', (e) => { state.showPos = e.target.checked; setPanes(); dirty = true; });
+  $('#showVolume').addEventListener('change', (e) => { state.showVolume = e.target.checked; setPanes(); dirty = true; });
+  $('#showFisher').addEventListener('change', (e) => { state.showFisher = e.target.checked; setPanes(); dirty = true; });
   $('#showEps').addEventListener('change', (e) => { state.showEps = e.target.checked; dirty = true; });
   $('#daySel').addEventListener('change', (e) => {
     const d = Number(e.target.value);
@@ -957,13 +980,21 @@ async function loadMonth(m) {
   const token = ++loadToken;
   $('#monthSel').value = m;
   setMsg(`${m} 불러오는 중…`);
-  let F, C, fallback = false;
+  let F, C, indicators = null, indicatorError = '', fallback = false;
   try { F = await loadData('f_' + m); }
   catch (e) { console.error(e); setMsg(`체결 파일을 못 읽었습니다: ${e.message}`); return; }
   try { C = await loadData('c_' + m); }
   catch (e) {
     console.warn(e); fallback = true;
     C = W.daily.filter((d) => new Date(d[0] * 1000).toISOString().slice(0, 7) === m).map((d) => [...d, 0]);
+  }
+  if (!fallback) {
+    try {
+      const response = await fetch(`data/fisher_${m}.json`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      indicators = await response.json();
+      if (indicators.length !== 9 || indicators.source !== 'HL2' || !indicators.series) throw new Error('Fisher9 데이터 형식 오류');
+    } catch (e) { indicatorError = `Fisher9 파일을 읽지 못했습니다 (${e.message}). 빌드 후 실행해 주세요.`; }
   }
   if (token !== loadToken) return;
   unloadExcept(['f_' + m, 'c_' + m]);
@@ -980,7 +1011,7 @@ async function loadMonth(m) {
     dayCount.set(d, (dayCount.get(d) || 0) + 1);
     if (!epSeen.has(f[8])) epSeen.set(f[8], E[f[8]]);
   }
-  cur = { month: m, F, C, fallback, meta: IDX.find((x) => x.month === m), maxFill, maxOrder, refLo: lo, refHi: hi, dayCount,
+  cur = { month: m, F, C, fallback, indicators, indicatorError, orderRoles: orderRoles(fills), meta: IDX.find((x) => x.month === m), maxFill, maxOrder, refLo: lo, refHi: hi, dayCount,
     eps: [...epSeen.values()] };
   pinned = null; hoverIdx = null; state.ep = null;
   document.querySelectorAll('#tfSeg button').forEach((b) => { b.disabled = fallback && b.dataset.v !== '86400'; });
@@ -993,13 +1024,7 @@ async function loadMonth(m) {
 }
 
 function aggregate(c1, tf) {
-  const out = []; let b_ = null;
-  for (const [t, o, h, l, c] of c1) {
-    const b = Math.floor(t / tf) * tf;
-    if (!b_ || b_.b !== b) { b_ = { b, o, h, l, c }; out.push(b_); }
-    else { if (h > b_.h) b_.h = h; if (l < b_.l) b_.l = l; b_.c = c; }
-  }
-  return out;
+  return aggregateCandles(c1, tf);
 }
 function barIndex(t) {
   const a = cur.times;
@@ -1015,6 +1040,15 @@ function render(keepRange) {
   const bars = aggregate(cur.C, tf);
   cur.bars = bars; cur.tfUsed = tf; cur.times = Float64Array.from(bars, (x) => x.b);
   candleS.setData(bars.map((x) => ({ time: x.b + KST, open: x.o, high: x.h, low: x.l, close: x.c })));
+  volumeS.setData(cur.fallback ? [] : bars.filter((x) => x.v !== null).map((x) => ({
+    time: x.b + KST, value: x.v, color: x.c >= x.o ? 'rgba(38,166,154,.65)' : 'rgba(239,83,80,.65)',
+  })));
+  const fisher = cur.indicators?.series[tf] || [];
+  cur.fisherByTime = new Map(fisher.map((row) => [row[0], row]));
+  fisherS.setData(fisher.map(([t, value]) => ({ time: t + KST, value })));
+  triggerS.setData(fisher.map(([t, , value]) => ({ time: t + KST, value })));
+  $('#indicatorStatus').textContent = cur.indicatorError || (cur.fallback ? '시장 거래량 · Fisher9: 캔들 원본 없음' : 'Fisher9 · HL2 · Trigger = 1봉 전 · 파랑 Fisher / 노랑 Trigger');
+  renderIndicatorValues(state.ep == null ? bars.length - 1 : Math.max(0, barIndex(E[state.ep][2] ?? bars[bars.length - 1].b)));
   const fills = cur.F.fills;
   let j = 0, p = cur.meta.startPos, pmax = 0, pmin = 0;
   cur.posData = bars.map((x) => {
@@ -1041,11 +1075,14 @@ function render(keepRange) {
 
 function renderChips() {
   const x = cur.meta;
+  const quantities = [0, 0, 0, 0, 0];
+  for (const fill of cur.F.fills) quantities[fill[3]] += fill[2];
   const pnl = W.monthly.find((m) => m[0] === cur.month);
   const parts = [
     `체결 <b>${nf(x.fills)}</b>건`, `주문 <b>${nf(x.orders)}</b>개`, `라운드트립 <b>${cur.eps.length}</b>개`,
-    `매수 <b>${usd(x.buy)}</b> / 매도 <b>${usd(x.sell)}</b>`, `메이커 <b>${x.makerPct}%</b>`,
-    `최대 롱 <b class="pos">${usd(x.maxLong)}</b>`, `최대 숏 <b class="neg">${usd(x.maxShort)}</b>`,
+    `Long 진입/추가 <b class="pos">${usd(quantities[1])}</b> · 축소/종료 <b>${usd(quantities[2])}</b>`,
+    `Short 진입/추가 <b class="neg">${usd(quantities[3])}</b> · 축소/종료 <b>${usd(quantities[4])}</b>`, `메이커 <b>${x.makerPct}%</b>`,
+    `최대 Long <b class="pos">${usd(Math.abs(x.maxLong))}</b>`, `최대 Short <b class="neg">${usd(Math.abs(x.maxShort))}</b>`,
     `월초 포지션 <b class="${cls(x.startPos)}">${usd(x.startPos)}</b>`,
   ];
   {
@@ -1072,7 +1109,7 @@ function renderDaySel() {
 function renderEpSel() {
   const sel = $('#epSel');
   sel.innerHTML = '<option value="">라운드트립 선택…</option>' + cur.eps.map((e) =>
-    `<option value="${e[0]}">${NOTES[e[0]] ? '📝 ' : ''}#${e[0]} · ${md(e[1])} · ${e[3] > 0 ? '롱' : '숏'} ${usd(e[4])} · ${e[2] == null ? '진행중' : btc(e[10], 2, true)}${e[11] ? ' · 강제청산' : ''}</option>`).join('');
+    `<option value="${e[0]}">${NOTES[e[0]] ? '📝 ' : ''}#${e[0]} · ${md(e[1])} · ${e[3] > 0 ? 'Long' : 'Short'} ${usd(e[4])} · ${e[2] == null ? '진행중' : btc(e[10], 2, true)}${e[11] ? ' · 강제청산' : ''}</option>`).join('');
   sel.value = state.ep == null ? '' : String(state.ep);
 }
 const circ = (n) => (n <= 20 ? String.fromCharCode(0x2460 + n - 1) : n <= 35 ? String.fromCharCode(0x3251 + n - 21) : n <= 50 ? String.fromCharCode(0x32B1 + n - 36) : `(${n})`);
@@ -1084,7 +1121,7 @@ function renderRtList() {
     const net = e[2] == null ? null : netPnl(e);
     const w = net == null ? 0 : Math.max(2, Math.round((60 * Math.abs(net)) / maxAbs));
     return `<div class="rt ${e[0] === state.ep ? 'on' : ''}" data-ep="${e[0]}">
-      <span class="a">${NOTES[e[0]] ? '📝 ' : ''}#${e[0]} ${md(e[1])} ${e[3] > 0 ? '롱' : '숏'} ${usd(e[4])}</span>
+      <span class="a">${NOTES[e[0]] ? '📝 ' : ''}#${e[0]} ${md(e[1])} ${e[3] > 0 ? 'Long' : 'Short'} ${usd(e[4])}</span>
       <span class="b ${net == null ? '' : cls(net)}">${net == null ? '진행중' : (net > 0 ? '+' : '') + nf(net, 2)}</span>
       <span class="c">${e[15] != null ? nf(e[15], 1) + '× · ' : ''}${e[5]}주문 ${e[6]}층${e[2] != null ? ' · ' + dur(e[2] - e[1]) : ''}${e[11] ? ' · <span class="tag liq">청산</span>' : ''}${net == null ? '' : ` <i class="bar ${net < 0 ? 'd' : ''}" style="width:${w}px"></i>`}</span></div>`;
   }).join('');
@@ -1095,7 +1132,7 @@ function renderCmd() {
   if (!cur) return;
   if (state.ep == null) { el.innerHTML = `<span class="k">${cur.month}</span> <span class="v">라운드트립 ${cur.eps.length}개</span> <span class="k">· 왼쪽 목록이나 캔들을 눌러 고르세요</span>`; return; }
   const e = E[state.ep], open = e[2] == null;
-  el.innerHTML = `<span class="v">#${e[0]}</span> <span class="k">${kst(e[1], false)} → ${open ? '진행 중' : kst(e[2], false).slice(5)}</span> <span class="v">${e[3] > 0 ? '롱' : '숏'} ${usd(e[4])}</span>`
+  el.innerHTML = `<span class="v">#${e[0]}</span> <span class="k">${kst(e[1], false)} → ${open ? '진행 중' : kst(e[2], false).slice(5)}</span> <span class="v">${e[3] > 0 ? 'Long' : 'Short'} ${usd(e[4])}</span>`
     + (e[15] != null ? ` <span class="k">잔고의</span> <span class="v">${nf(e[15], 1)}×</span>` : '')
     + (open ? '' : ` <span class="k">순손익</span> <span class="v ${cls(netPnl(e))}">${btc(netPnl(e), 2, true)}</span> <span class="k">(${e[17] != null ? nf(e[17], 1) + '%' : '-'})</span>`);
 }
@@ -1107,23 +1144,23 @@ function renderHud() {
     + (open ? '' : `<span>펀딩 <b class="${cls(e[18])}">${btc(e[18], 2, true)}</b></span><span>수수료 <b class="${cls(e[19])}">${btc(e[19], 2, true)}</b></span>`);
   el.classList.add('on');
 }
-// 행동 이름: 라운드트립 안에서의 역할 (색은 매수 초록 / 매도 빨강 — 차트 표시와 같음)
+// 행동 이름과 색은 실제 포지션 방향으로 정한다. 원본 주문의 매수/매도는 상세 정보에 보존한다.
 function stepLabel(g, e) {
-  if (g.liq) return '강제청산';
-  if (g.inc) return g.t0 === e[1] ? (e[3] > 0 ? '롱 진입' : '숏 진입') : '추가 진입';
-  return g.pos === 0 ? '전부 청산' : '일부 청산';
+  return groupActionLabel(g, e);
 }
 // 피드 한 줄 = 매매 한 묶음. 막대 전체 = 이 라운드트립의 최대 포지션, 회색 = 이 줄 뒤 누적, 색 = 이번에 늘리거나 줄인 몫
 function feedRow(g, k, e, feed) {
+  const color = directionColor(e[3]);
   const price = g.pmin === g.pmax ? nf(g.pmin, 0) : `${nf(g.pmin, 0)}~${nf(g.pmax, 0)}`;
-  const after = Math.abs(g.pos), before = Math.abs(g.pos - (g.side === 'buy' ? g.qty : -g.qty));
+  const after = Math.sign(g.pos) === e[3] ? Math.abs(g.pos) : 0;
+  const before = g.inc ? Math.max(0, after - g.qty) : after + g.qty;
   const pct = (v) => Math.min(100, (100 * v) / Math.max(1, e[4]));
   const lo = pct(Math.min(before, after)), hi = pct(Math.max(before, after));
   const mk = g.taker > g.n / 2 ? '테이커' : '메이커';
-  const tip = `${g.side === 'buy' ? '매수' : '매도'} ${usd(g.qty)} @${price}${g.items.length > 1 ? ` · 주문 ${g.items.length}개` : ''} · ${mk} · 이 줄 뒤 포지션 ${after ? (e[3] > 0 ? '롱 ' : '숏 ') + usd(after) : '0'} (최대의 ${nf(pct(after), 0)}%)`;
-  return `<div class="fr" data-t="${g.t0}" data-px="${g.px0}" data-side="${g.side}" data-liq="${g.liq ? 1 : 0}" data-n="${k + 1}"${feed ? ` data-ep="${e[0]}"` : ''} title="${tip}">
-    <div class="l1"><span class="n">${circ(k + 1)}</span><span class="tm">${md(g.t0)}${g.t1 - g.t0 >= 60 ? '→' + hm(g.t1) : ''}</span><span class="pill ${g.liq ? 'liq' : g.side}">${stepLabel(g, e)}</span><span class="q">${usd(g.qty)}</span></div>
-    <div class="l2"><span class="px">@${price}${g.items.length > 1 ? ` ×${g.items.length}` : ''} · ${mk}</span><span class="bar"><i class="cum" style="width:${pct(after)}%"></i><i class="${g.liq ? 'liq' : g.side}" style="left:${lo}%;width:${Math.max(hi - lo, 1.5)}%"></i></span><span class="c">${after ? nf(pct(after), 0) + '%' : '0'}</span></div></div>`;
+  const tip = `${stepLabel(g, e)} · ${g.side === 'buy' ? '매수' : '매도'} ${usd(g.qty)} @${price}${g.items.length > 1 ? ` · 주문 ${g.items.length}개` : ''} · ${mk} · 이 줄 뒤 포지션 ${after ? (e[3] > 0 ? 'Long ' : 'Short ') + usd(after) : '0'} (최대의 ${nf(pct(after), 0)}%)`;
+  return `<div class="fr" data-t="${g.t0}" data-px="${g.px0}" data-side="${g.side}" data-direction="${e[3]}" data-liq="${g.liq ? 1 : 0}" data-n="${k + 1}"${feed ? ` data-ep="${e[0]}"` : ''} title="${tip}">
+    <div class="l1"><span class="n">${circ(k + 1)}</span><span class="tm">${md(g.t0)}${g.t1 - g.t0 >= 60 ? '→' + hm(g.t1) : ''}</span><span class="pill ${g.liq ? 'liq' : color}">${stepLabel(g, e)}</span><span class="q">${usd(g.qty)}</span></div>
+    <div class="l2"><span class="px">@${price}${g.items.length > 1 ? ` ×${g.items.length}` : ''} · ${mk}</span><span class="bar"><i class="cum" style="width:${pct(after)}%"></i><i class="${g.liq ? 'liq' : color}" style="left:${lo}%;width:${Math.max(hi - lo, 1.5)}%"></i></span><span class="c">${after ? nf(pct(after), 0) + '%' : '0'}</span></div></div>`;
 }
 let feedKey = '';
 function renderFeed() {
@@ -1134,7 +1171,7 @@ function renderFeed() {
   const e = E[state.ep], groups = cur.tl || (cur.tl = buildTimeline(state.ep));
   el.innerHTML = groups.map((g, k) => feedRow(g, k, e, false)).join('');
   el.scrollTop = 0;
-  $('#feedMeta').innerHTML = `#${e[0]} ${e[3] > 0 ? '롱' : '숏'} · ${groups.length}줄`;
+  $('#feedMeta').innerHTML = `#${e[0]} ${e[3] > 0 ? 'Long' : 'Short'} · ${groups.length}줄`;
 }
 // 라운드트립을 안 골랐을 때: 지금 화면에 걸친 라운드트립들의 순서를 이어서 (화면을 옮기면 따라감)
 function syncFeed(tA, tB) {
@@ -1151,7 +1188,7 @@ function syncFeed(tA, tB) {
         const tl = allTimelines();
         el.innerHTML = vis.map((e) => {
           const net = e[2] == null ? null : netPnl(e);
-          return `<div class="fr sep" data-sel="${e[0]}" title="눌러서 이 라운드트립 고르기"><b>#${e[0]} ${e[3] > 0 ? '롱' : '숏'} ${usd(e[4])}</b><span class="${net == null ? '' : cls(net)}">${net == null ? '진행 중' : btc(net, 2, true)}</span></div>`
+          return `<div class="fr sep" data-sel="${e[0]}" title="눌러서 이 라운드트립 고르기"><b>#${e[0]} ${e[3] > 0 ? 'Long' : 'Short'} ${usd(e[4])}</b><span class="${net == null ? '' : cls(net)}">${net == null ? '진행 중' : btc(net, 2, true)}</span></div>`
             + (tl.get(e[0]) || []).map((g, k) => feedRow(g, k, e, true)).join('');
         }).join('');
         const first = [...el.querySelectorAll('.fr[data-t]')].find((c) => +c.dataset.t >= tA);
@@ -1169,7 +1206,7 @@ function hotFeed(rows) {
   const c = rows[0];
   if (c && (c.offsetTop < el.scrollTop || c.offsetTop + c.offsetHeight > el.scrollTop + el.clientHeight)) el.scrollTo({ top: Math.max(0, c.offsetTop - 50), behavior: 'smooth' });
 }
-const legOf = (c) => (c ? { t: +c.dataset.t, px: +c.dataset.px, side: c.dataset.side, liq: c.dataset.liq === '1', n: +c.dataset.n } : null);
+const legOf = (c) => (c ? { t: +c.dataset.t, px: +c.dataset.px, direction: +c.dataset.direction, liq: c.dataset.liq === '1', n: +c.dataset.n } : null);
 function setHoverLeg(h) { if ((h && h.t) !== (hoverLeg && hoverLeg.t) || (h && h.n) !== (hoverLeg && hoverLeg.n)) { hoverLeg = h; dirty = true; } }
 function epRows() {
   return cur.eps.map((e) => ({
@@ -1286,6 +1323,7 @@ function selectEpisode(id, zoom) {
   document.querySelectorAll('#rtList .rt').forEach((x) => x.classList.toggle('on', Number(x.dataset.ep) === state.ep));
   scrollWithin(document.querySelector('#rtList .rt.on'));
   renderCmd(); renderHud(); renderFeed(); renderEpCard(); dirty = true;
+  renderIndicatorValues(Math.max(0, barIndex(e[2] ?? cur.bars[cur.bars.length - 1].b)));
 }
 // ①~㊿ → 번호 링크 (태그 안 속성은 건드리지 않게 글자 부분만)
 const CIRC_N = (ch) => { const c = ch.charCodeAt(0); return c <= 0x2473 ? c - 0x2460 + 1 : c <= 0x325f ? c - 0x3251 + 21 : c - 0x32b1 + 36; };
@@ -1297,7 +1335,7 @@ function renderEpCard() {
     const big = [...cur.eps].filter((e) => e[2] != null).sort((a, b) => b[4] - a[4]).slice(0, 8);
     el.innerHTML = `<div class="side-h"><div><div class="t">${cur.month} 한눈에 보기</div><div class="m">읽는 법: 1) 라운드트립을 고르면(왼쪽 목록·위 피드의 제목 줄·캔들 클릭) 2) 위 <b>매매 피드</b>에 몇 시에 무엇을 얼마나 했는지 순서대로, 3) 이 자리에 <b>해설 · 사다리 · 수치</b>가 나온다. 해설 속 ①② 번호에 마우스를 올리면 피드 줄과 차트 배지에 불이 들어온다.</div></div></div>
       <div class="side-b">
-        ${liq.length ? `<div class="hint" style="color:var(--liq)">강제청산 ${liq.length}건</div>` + liq.map((o) => `<div class="ord link" data-t="${o[8]}"><div class="l1"><span class="act-${o[0] > 0 ? 'buy' : 'sell'}">강제청산 ${usd(o[6])}</span><span>${md(o[8])}</span></div><div class="l2">${o[0] > 0 ? '매수' : '매도'} @ ${nf(o[2], 1)}</div></div>`).join('') : ''}
+        ${liq.length ? `<div class="hint" style="color:var(--liq)">강제청산 ${liq.length}건</div>` + liq.map((o) => `<div class="ord link" data-t="${o[8]}"><div class="l1"><span class="act-${cur.orderRoles.get(O.indexOf(o))?.color || 'mixed'}">${cur.orderRoles.get(O.indexOf(o))?.direction > 0 ? 'Long' : 'Short'} 강제청산 ${usd(o[6])}</span><span>${md(o[8])}</span></div><div class="l2">${o[0] > 0 ? '매수' : '매도'} @ ${nf(o[2], 1)}</div></div>`).join('') : ''}
         <div class="hint">이 달 가장 큰 라운드트립 (눌러서 이동)</div>
         ${big.map((e) => `<div class="ord link" data-ep="${e[0]}"><div class="l1"><span>${dirTag(e[3])} ${usd(e[4])}</span><span class="${cls(e[10])}">${btc(e[10], 2, true)}</span></div>
           <div class="l2">${md(e[1])} · 진입 ${e[5]}주문 ${e[6]}층 · ${dur(e[7])} 만에 다 채움 · 보유 ${dur(e[2] - e[1])}</div></div>`).join('')}
@@ -1311,12 +1349,12 @@ function renderEpCard() {
   const maxQ = Math.max(1, ...entry.map((r) => r.o[5]), ...exit.map((r) => r.o[5]));
   const open = e[2] == null;
   const row = (r, extra) => {
-    const o = r.o, side = o[0] > 0 ? 'buy' : 'sell';
+    const o = r.o, side = directionColor(e[3]);
     const w = Math.max(3, (100 * o[5]) / maxQ), fillPct = o[5] ? Math.round((100 * o[6]) / o[5]) : 100;
     const tags = FLAGS.filter(([bit]) => o[10] & bit && bit !== 16).map(([, n, c]) => `<span class="tag ${c || ''}">${n}</span>`).join('');
     return `<div class="p num ${extra}">${nf(o[2], 1)}</div>
       <div class="bar ${side} ${extra}" style="width:${w}%"><i style="width:${fillPct}%"></i></div>
-      <div class="lbl num ${extra}"><b class="act-${side}">${side === 'buy' ? '매수' : '매도'} ${usd(o[5])}</b> · ${fillPct}% · ${md(r.first)}${r.n > 1 && hm(r.last) !== hm(r.first) ? '→' + hm(r.last) : ''} · ${r.taker ? '테이커' : '메이커'}${tags ? ' ' + tags : ''}</div>`;
+      <div class="lbl num ${extra}"><b class="act-${side}">${e[3] > 0 ? 'Long' : 'Short'} ${r.entry ? '진입/추가' : '축소/종료'} ${usd(r.qty)}</b> · 주문 ${usd(o[5])} · ${fillPct}% · ${md(r.first)}${r.n > 1 && hm(r.last) !== hm(r.first) ? '→' + hm(r.last) : ''} · ${r.taker ? '테이커' : '메이커'}${tags ? ' ' + tags : ''}</div>`;
   };
   const tabs = [['expl', '해설'], ['lad', '사다리'], ['kv', '수치']];
   if (!tabs.some((t) => t[0] === state.ptab)) state.ptab = 'expl';
@@ -1346,6 +1384,11 @@ function renderEpCard() {
   el.innerHTML = head + `<div class="side-b">${state.ptab === 'expl' ? linkCircled(bodies.expl) : bodies[state.ptab]}</div>`;
   el.querySelectorAll('.ptab').forEach((b) => b.addEventListener('click', () => { state.ptab = b.dataset.k; store.set('ptab', state.ptab); renderEpCard(); }));
 }
+function renderIndicatorValues(idx) {
+  const bar = cur?.bars?.[idx];
+  const row = bar && cur.fisherByTime.get(bar.b);
+  $('#indicatorValues').textContent = bar ? `${kst(bar.b, false)} · 시장 거래량 ${cur.fallback || bar.v === null ? '없음' : nf(bar.v) + ' 계약'} · Fisher ${row ? nf(row[1], 3) : '없음'} · Trigger ${row ? nf(row[2], 3) : '없음'}` : '';
+}
 function renderBarCard(idx) {
   const el = $('#barCard');
   if (idx == null || !cur || !cur.bars || !cur.bars[idx]) {
@@ -1353,6 +1396,8 @@ function renderBarCard(idx) {
     return;
   }
   const bar = cur.bars[idx], tf = cur.tfUsed, Fl = cur.F.fills, O = cur.F.orders;
+  renderIndicatorValues(idx);
+  const fisher = cur.fisherByTime.get(bar.b);
   const a = lowerBound(Fl, bar.b), b = lowerBound(Fl, bar.b + tf);
   const groups = new Map();
   for (let k = a; k < b; k++) {
@@ -1365,11 +1410,12 @@ function renderBarCard(idx) {
   const list = [...groups.values()].sort((x, y) => y.qty - x.qty);
   const pos = cur.posData[idx].value;
   const head = `<div class="side-h"><div><div class="t num">${kst(bar.b, false)} · ${TF_NAME[tf]}봉 ${pinned === idx ? '📌' : ''}</div>
-    <div class="m num">시 ${nf(bar.o, 1)} · 고 ${nf(bar.h, 1)} · 저 ${nf(bar.l, 1)} · 종 ${nf(bar.c, 1)} · 봉 끝 포지션 <span class="${cls(pos)}">${pos > 0 ? '롱 ' : pos < 0 ? '숏 ' : ''}${usd(Math.abs(pos))}</span></div></div></div>`;
+    <div class="m num">시 ${nf(bar.o, 1)} · 고 ${nf(bar.h, 1)} · 저 ${nf(bar.l, 1)} · 종 ${nf(bar.c, 1)} · 봉 끝 포지션 <span class="${cls(pos)}">${pos > 0 ? 'Long ' : pos < 0 ? 'Short ' : ''}${usd(Math.abs(pos))}</span></div>
+    <div class="m num">시장 거래량 ${cur.fallback || bar.v === null ? '없음' : nf(bar.v) + ' 계약'} · Fisher9 ${fisher ? nf(fisher[1], 3) : '없음'} · Trigger ${fisher ? nf(fisher[2], 3) : '없음'}</div></div></div>`;
   if (!list.length) { el.innerHTML = head + '<div class="side-b"><div class="hint">이 봉에는 체결이 없습니다.</div></div>'; return; }
   const body = list.slice(0, 30).map((g) => {
     const o = O[g.oi];
-    const acts = Object.entries(g.acts).map(([k, q]) => `<span class="act-${ACT[k].side}">${ACT[k].name} ${usd(q)}</span>`).join(' · ');
+    const acts = Object.entries(g.acts).map(([k, q]) => `<span class="act-${ACT[k].color}">${ACT[k].name} ${usd(q)}</span>`).join(' · ');
     const fillPct = o[5] ? Math.round((o[6] / o[5]) * 100) : 100;
     const tags = FLAGS.filter(([bit]) => o[10] & bit).map(([, name, c]) => `<span class="tag ${c || ''}">${name}</span>`).join('');
     return `<div class="ord"><div class="l1"><span>${acts}</span><span class="num">@ ${nf(g.pxq / g.qty, 1)}</span></div>
@@ -1446,7 +1492,7 @@ function draw() {
       }
       if (wpx >= 56 && x0 - lastLabelX >= 54) {
         lastLabelX = x0;
-        const txt = `#${e[0]} ${e[3] > 0 ? '롱' : '숏'} ${usd(e[4])}${e[2] == null ? '' : ' ' + (e[10] >= 0 ? '+' : '') + nf(e[10], 0)}`;
+        const txt = `#${e[0]} ${e[3] > 0 ? 'Long' : 'Short'} ${usd(e[4])}${e[2] == null ? '' : ' ' + (e[10] >= 0 ? '+' : '') + nf(e[10], 0)}`;
         const tw = octx.measureText(txt).width;
         octx.fillStyle = e[0] === sel ? 'rgba(88,166,255,.18)' : 'rgba(14,17,22,.85)'; octx.fillRect(x0 + 3, 4, tw + 8, 15);
         octx.fillStyle = e[0] === sel ? '#d5dbe3' : e[3] > 0 ? `rgba(${RGB.buy},.9)` : `rgba(${RGB.sell},.9)`; octx.fillText(txt, x0 + 7, 15);
@@ -1488,7 +1534,8 @@ function draw() {
       let xa = X(o[8]), xb = X(o[9]);
       if (y == null || xa == null || xb == null) continue;
       if (xb - xa < 8) { xa -= 4; xb += 4; }
-      const rgb = o[0] > 0 ? RGB.buy : RGB.sell, dim = epOrderSet && !epOrderSet.has(k);
+      const role = cur.orderRoles.get(k) || { color: 'mixed', label: '방향 미확인' };
+      const rgb = RGB[role.color], dim = epOrderSet && !epOrderSet.has(k);
       if (dim) continue; // 라운드트립을 골랐으면 그 주문선만
       if (sel != null) { octx.fillStyle = `rgba(${rgb},.20)`; octx.fillRect(xa, y - 4, Math.max(xb - xa, 2), 8); } // 체결이 이어진 구간
       octx.strokeStyle = `rgba(${rgb},0.75)`;
@@ -1499,7 +1546,7 @@ function draw() {
         usedY.push(y);
         const pct = o[5] ? Math.round((o[6] / o[5]) * 100) : 100;
         octx.fillStyle = `rgba(${rgb},.95)`;
-        octx.fillText(`${o[0] > 0 ? '매수' : '매도'} ${usd(o[5])}${pct < 100 ? ` (${pct}%)` : ''}`, xb + 4, y - 3);
+        octx.fillText(`${role.label} ${usd(o[5])}${pct < 100 ? ` (${pct}%)` : ''}`, xb + 4, y - 3);
       }
     }
     octx.setLineDash([]);
@@ -1513,8 +1560,8 @@ function draw() {
       const y = candleS.priceToCoordinate(f[1]), x = X(f[0]);
       if (y == null || x == null) return;
       const m = ACT[f[3]];
-      if (glow) { octx.shadowColor = `rgba(${RGB[m.side]},.85)`; octx.shadowBlur = 7; }
-      tri(x, y, 2 + 9 * Math.sqrt(f[2] / cur.maxFill), m.side === 'buy', RGB[m.side], m.inc, alpha);
+      if (glow) { octx.shadowColor = `rgba(${RGB[m.color]},.85)`; octx.shadowBlur = 7; }
+      tri(x, y, 2 + 9 * Math.sqrt(f[2] / cur.maxFill), m.direction > 0, RGB[m.color], m.inc, alpha);
       octx.shadowBlur = 0;
     };
     for (let k = a; k < b; k++) {
@@ -1541,7 +1588,8 @@ function draw() {
       if (g.t0 < tA || g.t0 > tB) return;
       const x = X(g.t0), y = candleS.priceToCoordinate(g.px0);
       if (x == null || y == null) return;
-      const by = g.side === 'buy' ? y + 18 : y - 18, col = g.liq ? '#b388ff' : `rgb(${RGB[g.side]})`;
+      const direction = E[sel][3];
+      const by = direction > 0 ? y + 18 : y - 18, col = g.liq ? '#b388ff' : `rgb(${RGB[directionColor(direction)]})`;
       octx.strokeStyle = col; octx.lineWidth = 1; octx.beginPath(); octx.moveTo(x, y); octx.lineTo(x, by); octx.stroke();
       octx.fillStyle = col; octx.beginPath(); octx.arc(x, by, 8, 0, Math.PI * 2); octx.fill();
       octx.fillStyle = '#0b0d10'; octx.fillText(String(i + 1), x, by + 3.5);
@@ -1552,7 +1600,7 @@ function draw() {
   if (hoverLeg && hoverLeg.t >= tA && hoverLeg.t <= tB) {
     const x = X(hoverLeg.t), y = candleS.priceToCoordinate(hoverLeg.px);
     if (x != null && y != null) {
-      const by = hoverLeg.side === 'buy' ? y + 20 : y - 20, col = hoverLeg.liq ? '#b388ff' : `rgb(${RGB[hoverLeg.side]})`;
+      const by = hoverLeg.direction > 0 ? y + 20 : y - 20, col = hoverLeg.liq ? '#b388ff' : `rgb(${RGB[directionColor(hoverLeg.direction)]})`;
       octx.strokeStyle = 'rgba(240,180,41,.55)'; octx.lineWidth = 1; octx.setLineDash([2, 3]);
       octx.beginPath(); octx.moveTo(Math.round(x) + 0.5, 0); octx.lineTo(Math.round(x) + 0.5, plotH); octx.stroke(); octx.setLineDash([]);
       octx.save(); octx.shadowColor = col; octx.shadowBlur = 14;
@@ -1575,7 +1623,7 @@ function draw() {
       cands[i].h = clamp(gap - 1.5, 1.5, 6);
     }
     for (const c of [...cands].sort((p, q) => O[q.k][5] - O[p.k][5])) {
-      const o = O[c.k], side = o[0] > 0 ? 'buy' : 'sell', dim = epOrderSet && !epOrderSet.has(c.k);
+      const o = O[c.k], side = cur.orderRoles.get(c.k)?.color || 'mixed', dim = epOrderSet && !epOrderSet.has(c.k);
       const len = 14 + (maxLen - 14) * Math.sqrt(o[5] / maxQ), fillFrac = o[5] ? Math.min(1, o[6] / o[5]) : 1;
       c.len = len; c.dim = dim;
       octx.globalAlpha = dim ? 0.4 : 0.85;
@@ -1587,10 +1635,11 @@ function draw() {
     // 라벨: 붙어 있는 같은 방향 주문은 묶어서 한 줄로 (개수 · 합계 · 체결률 · 가격대)
     const clusters = [];
     for (const c of cands) {
-      const side = O[c.k][0] > 0 ? 'buy' : 'sell';
+      const role = cur.orderRoles.get(c.k) || { color: 'mixed', label: '방향 미확인' };
+      const side = role.color;
       const last = clusters[clusters.length - 1];
-      if (last && last.side === side && last.dim === c.dim && c.y - last.y1 <= 9) { last.items.push(c); last.y1 = c.y; }
-      else clusters.push({ side, dim: c.dim, items: [c], y0: c.y, y1: c.y });
+      if (last && last.side === side && last.role === role.label && last.dim === c.dim && c.y - last.y1 <= 9) { last.items.push(c); last.y1 = c.y; }
+      else clusters.push({ side, role: role.label, dim: c.dim, items: [c], y0: c.y, y1: c.y });
     }
     const usedY = [];
     const clQty = (cl) => cl.items.reduce((a, c) => a + O[c.k][5], 0);
@@ -1604,7 +1653,7 @@ function draw() {
       const pct = qty ? Math.round((100 * filled) / qty) : 100;
       const len = Math.max(...cl.items.map((c) => c.len));
       const liq = os.some((o) => o[10] & 8);
-      const sideTxt = cl.side === 'buy' ? '매수' : '매도';
+      const sideTxt = cl.role;
       const txt = (os.length === 1
         ? `${sideTxt} ${usd(qty)}${pct < 100 ? ` ${pct}%` : ''} · ${hm(os[0][8])}${liq ? ' 강제청산' : ''}`
         : `${sideTxt} ${os.length}개 합 ${usd(qty)} · ${pct}% · ${nf(Math.min(...os.map((o) => o[2])), 0)}~${nf(Math.max(...os.map((o) => o[2])), 0)}`)

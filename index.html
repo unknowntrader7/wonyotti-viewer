@@ -16,7 +16,7 @@
     --r: 4px; --r-s: 3px;
     --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
     --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
-    --side-w: 300px; --right-w: 400px; --term-h: calc(100vh - 118px);
+    --side-w: 300px; --right-w: 400px; --term-h: calc(100vh - 142px);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); font: 12.5px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
@@ -161,7 +161,9 @@
   .cmd .ep-nav { display: inline-flex; gap: 3px; }
   .cmd .ep-nav button { background: none; border: 1px solid var(--border-2); color: var(--muted); padding: 1px 7px; cursor: pointer; border-radius: 2px; font-family: var(--mono); }
   .cmd .ep-nav button:hover { color: var(--accent); border-color: var(--accent); }
-  .term { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--right-w); height: var(--term-h); min-height: 720px; border-bottom: 1px solid var(--border); }
+  .term { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--right-w); height: var(--term-h); min-height: 420px; border-bottom: 1px solid var(--border); }
+  .indicator-strip { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 5px 10px; font: 11px var(--mono); color: var(--muted); background: var(--card); border-bottom: 1px solid var(--border); }
+  #indicatorValues { color: var(--text); }
   .tside { border-right: 1px solid var(--border); overflow: auto; background: var(--bg); display: flex; flex-direction: column; }
   .tside-h { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--card); position: sticky; top: 0; z-index: 2; }
   .tside-h .lbl { margin: 0; }
@@ -313,7 +315,7 @@
           <div class="sec-h">읽는 법</div>
           <ol>
             <li><b>라운드트립</b> = 포지션 0 → 진입 → 다시 0. 아래 표에서 하나를 누르면 체결 차트로 이동한다.</li>
-            <li><b>차트</b>: ▲매수 ▼매도, 꽉 찬 것 = 포지션 키움, 빈 것 = 줄임. 오른쪽 <b>사다리</b> = 그 구간에 걸었던 주문(길이 = 크기, 진한 부분 = 체결). 아래 패널 = 포지션 크기.</li>
+            <li><b>차트</b>: 초록 ▲Long · 빨강 ▼Short, 꽉 찬 것 = 진입/추가, 빈 것 = 축소/종료. 오른쪽 <b>사다리</b> = 그 구간에 걸었던 주문(길이 = 크기, 진한 부분 = 체결). 아래 패널 = 시장 거래량 → Fisher9 → 실제 포지션 크기.</li>
             <li><b>오른쪽 패널</b>: 📝 튜터 노트 → 자동 해설 → 매매 일지 → 사다리 순서. 캔들에 마우스를 올리면 그 봉의 주문이, 클릭하면 고정된다. Esc = 선택 해제.</li>
             <li><b>용어</b>: 잔고 대비 = 최대 포지션 ÷ (시작 전날 잔고 × 진입 평균가). 1계약 = 1달러. 시각은 한국시간, 월 구분은 UTC.</li>
           </ol>
@@ -380,9 +382,12 @@
         <label class="chk"><input type="checkbox" id="showFills" checked>체결점</label>
         <label class="chk"><input type="checkbox" id="showOrders" checked>주문선</label>
         <label class="chk"><input type="checkbox" id="showLadder" checked>사다리</label>
+        <label class="chk"><input type="checkbox" id="showVolume" checked>거래량</label>
+        <label class="chk"><input type="checkbox" id="showFisher" checked>Fisher9</label>
         <label class="chk"><input type="checkbox" id="showPos" checked>포지션</label>
         <label class="chk"><input type="checkbox" id="showEps" checked>구간</label></span>
     </div>
+    <div class="indicator-strip"><span id="indicatorStatus">Fisher9 · HL2 · Trigger = 1봉 전</span><span id="indicatorValues"></span></div>
     <div class="term">
       <aside class="tside">
         <div class="tside-h"><button class="btn" id="prevMonth" title="이전 달">◀</button><select class="ctl" id="monthSel"></select><button class="btn" id="nextMonth" title="다음 달">▶</button></div>
@@ -411,12 +416,12 @@
       </aside>
     </div>
     <div class="legend">
-      <span><svg width="14" height="14"><path d="M7 2 L13 12 L1 12 Z" fill="var(--buy)"/></svg>매수 · 포지션 키움</span>
-      <span><svg width="14" height="14"><path d="M7 2 L13 12 L1 12 Z" fill="none" stroke="var(--buy)" stroke-width="1.6"/></svg>매수 · 포지션 줄임(숏 정리)</span>
-      <span><svg width="14" height="14"><path d="M7 12 L13 2 L1 2 Z" fill="var(--sell)"/></svg>매도 · 포지션 키움</span>
-      <span><svg width="14" height="14"><path d="M7 12 L13 2 L1 2 Z" fill="none" stroke="var(--sell)" stroke-width="1.6"/></svg>매도 · 포지션 줄임(롱 정리)</span>
+      <span><svg width="14" height="14"><path d="M7 2 L13 12 L1 12 Z" fill="var(--buy)"/></svg>Long 진입/추가</span>
+      <span><svg width="14" height="14"><path d="M7 2 L13 12 L1 12 Z" fill="none" stroke="var(--buy)" stroke-width="1.6"/></svg>Long 축소/종료</span>
+      <span><svg width="14" height="14"><path d="M7 12 L13 2 L1 2 Z" fill="var(--sell)"/></svg>Short 진입/추가</span>
+      <span><svg width="14" height="14"><path d="M7 12 L13 2 L1 2 Z" fill="none" stroke="var(--sell)" stroke-width="1.6"/></svg>Short 축소/종료</span>
       <span><svg width="14" height="14"><path d="M2 2 L12 12 M12 2 L2 12" stroke="var(--liq)" stroke-width="2.4"/></svg>강제청산</span>
-      <span><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--buy)" stroke-width="2"/></svg>매수 주문가 <svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--sell)" stroke-width="2"/></svg>매도 주문가</span>
+      <span><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--buy)" stroke-width="2"/></svg>Long 주문가 <svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--sell)" stroke-width="2"/></svg>Short 주문가 · 노랑 = 양방향 주문</span>
       <span><svg width="22" height="10"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--muted)" stroke-width="2" stroke-dasharray="4 3"/></svg>점선 = 일부만 체결</span>
       <span>오른쪽 사다리 = 보이는 구간의 주문(막대 길이 = 주문 크기, 진한 부분 = 체결된 양)</span>
       <span><svg width="14" height="14"><line x1="7" y1="1" x2="7" y2="13" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 2"/></svg>세로 점선 = 라운드트립 시작</span>
@@ -454,6 +459,6 @@
 <script src="data/notes.js"></script>
 <script src="data/expl.js"></script>
 <script src="data/hypo.js"></script>
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
